@@ -1,0 +1,11 @@
+<!-- index.html：點一下就帶 user_id 打開第二個 App -->
+<a href="
+intent://editTranscript?user_id=demo1            /* Query 參數 */
+#Intent;
+  scheme=dsassistant;                             /* <data android:scheme> */
+  action=dsassistant.intent.action.EDITABLE_TRANSCRIPT;
+  package=com.example.secondapp;                  /* 第二個 App 的封包名 */
+  S.browser_fallback_url=https%3A%2F%2Fexample.com%2Fdownload;
+end">
+開啟錄音編輯
+</a>
