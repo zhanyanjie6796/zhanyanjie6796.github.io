@@ -1,0 +1,5 @@
+<script>
+  const params = new URLSearchParams(location.search);
+  document.body.innerText =
+    `userId = ${params.get('userId')}\ntranscript = ${params.get('transcript')}`;
+</script>
