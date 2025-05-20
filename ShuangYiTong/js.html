@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>累加範例</title>
+</head>
+<body>
+  <h1 id="number">0</h1>
+  <button onclick="addOne()">加一</button>
+
+  <script>
+    let count = 0;
+
+    function addOne() {
+      if (count < 10) {
+        count++;
+        document.getElementById("number").textContent = count;
+      } else {
+        alert("已經到10了！");
+      }
+    }
+  </script>
+</body>
+</html>
