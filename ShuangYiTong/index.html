@@ -1,16 +1,21 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
-<head><meta charset="UTF-8"><title>開啟錄音編輯</title></head>
+<html>
+<head><meta charset="utf-8"><title>Open App Demo</title></head>
 <body>
-<a href="
-intent://edittranscript?user_id=demo1               /* 要傳入的參數 */
-#Intent;
-  scheme=dsassistant;
-  action=dsassistant.intent.action.EDITABLE_TRANSCRIPT2;
-  package=com.example.deeplinkdemo;                 /* 第二個 App 封包名 */
-  S.browser_fallback_url=https%3A%2F%2Fexample.com;
-end">
-▶ 開啟錄音編輯
-</a>
+  <h3>從網頁送文字到 APP</h3>
+  <input id="inTxt" value="Hello Android!" />
+  <button onclick="openApp()">送出</button>
+
+  <script>
+  function openApp() {
+      const v = encodeURIComponent(document.getElementById('inTxt').value);
+      /* intent://   可在 Android Chrome 直接觸發 Intent
+         browser_fallback_url 當手機沒有安裝 APP 時回到此網頁 */
+      location.href =
+        `intent://edit?text=${v}#Intent;scheme=myappdemo;` +
+        `package=com.example.deeplinkdemo;` +
+        `S.browser_fallback_url=https%3A%2F%2Fexample.com/index.html;end`;
+  }
+  </script>
 </body>
 </html>
