@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Result</title></head>
+<body>
+  <h3>APP 回傳結果：</h3>
+  <div id="out"></div>
+
+  <script>
+  const params = new URLSearchParams(location.search);
+  document.getElementById('out').textContent =
+      params.get('result') ?? '（沒有收到結果）';
+  </script>
+</body>
+</html>
