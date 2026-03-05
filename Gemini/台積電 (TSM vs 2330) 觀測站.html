@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台積電 ADR & EWT 綜合觀測站</title>
+    <!-- 引入 Tailwind CSS 打造專業金融儀表板 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 FontAwesome 圖示 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: #0f172a; color: #e2e8f0; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .text-up { color: #ef4444; } /* 台股習慣：紅色上漲 */
+        .text-down { color: #22c55e; } /* 台股習慣：綠色下跌 */
+        .bg-up { background-color: rgba(239, 68, 68, 0.1); border-left: 4px solid #ef4444; }
+        .bg-down { background-color: rgba(34, 197, 94, 0.1); border-left: 4px solid #22c55e; }
+        .bg-neutral { background-color: rgba(148, 163, 184, 0.1); border-left: 4px solid #94a3b8; }
+        
+        /* 載入動畫 */
+        .spinner { border: 3px solid rgba(255,255,255,0.1); border-radius: 50%; border-top: 3px solid #3b82f6; width: 24px; height: 24px; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; margin-right: 8px;}
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+
+    <div class="max-w-4xl mx-auto">
+        <!-- 標題區 -->
+        <header class="mb-8 text-center md:text-left flex flex-col md:flex-row justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-black text-white tracking-wider flex items-center gap-3 justify-center md:justify-start">
+                    <i class="fa-solid fa-chart-line text-blue-500"></i>
+                    台積電 & EWT 綜合觀測站
+                </h1>
+                <p class="text-slate-400 mt-2 text-sm">結合 ADR 溢價與台灣大盤 ETF，精準預判隔日台股開盤風向</p>
+            </div>
+            <button id="refresh-btn" onclick="fetchMarketData()" class="mt-4 md:mt-0 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-6 rounded-lg shadow-lg transition duration-300 flex items-center gap-2">
+                <i class="fa-solid fa-arrows-rotate" id="refresh-icon"></i> <span>即時更新</span>
+            </button>
+        </header>
+
+        <!-- 系統狀態提示 -->
+        <div id="status-message" class="hidden mb-6 p-4 rounded-lg text-sm font-medium transition-all"></div>
+
+        <!-- 核心數據區 -->
+        <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+            <!-- TSM -->
+            <div class="glass-panel p-4 md:p-5 rounded-xl shadow-lg relative overflow-hidden">
+                <div class="text-[10px] md:text-xs text-slate-400 font-bold mb-1 uppercase">TSM (美股 ADR)</div>
+                <div class="text-xl md:text-2xl font-black text-white" id="val-tsm">--</div>
+                <div class="text-xs md:text-sm mt-1" id="chg-tsm">--</div>
+                <div id="trend-tsm" class="text-[10px] mt-2 tracking-widest opacity-80 flex gap-1"></div>
+            </div>
+            <!-- 2330 -->
+            <div class="glass-panel p-4 md:p-5 rounded-xl shadow-lg">
+                <div class="text-[10px] md:text-xs text-slate-400 font-bold mb-1 uppercase">2330 (台灣原股)</div>
+                <div class="text-xl md:text-2xl font-black text-white" id="val-2330">--</div>
+                <div class="text-xs md:text-sm mt-1" id="chg-2330">--</div>
+                <div id="trend-2330" class="text-[10px] mt-2 tracking-widest opacity-80 flex gap-1"></div>
+            </div>
+            <!-- TWII (大盤加權指數) -->
+            <div class="glass-panel p-4 md:p-5 rounded-xl shadow-lg border-yellow-500/30">
+                <div class="text-[10px] md:text-xs text-yellow-400 font-bold mb-1 uppercase flex items-center justify-between">
+                    加權指數 <i class="fa-solid fa-chart-pie"></i>
+                </div>
+                <div class="text-xl md:text-2xl font-black text-white" id="val-twii">--</div>
+                <div class="text-xs md:text-sm mt-1" id="chg-twii">--</div>
+                <div id="trend-twii" class="text-[10px] mt-2 tracking-widest opacity-80 flex gap-1"></div>
+            </div>
+            <!-- EWT -->
+            <div class="glass-panel p-4 md:p-5 rounded-xl shadow-lg border-blue-500/30">
+                <div class="text-[10px] md:text-xs text-blue-400 font-bold mb-1 uppercase flex items-center justify-between">
+                    EWT (夜盤情緒) <i class="fa-solid fa-globe"></i>
+                </div>
+                <div class="text-xl md:text-2xl font-black text-white" id="val-ewt">--</div>
+                <div class="text-xs md:text-sm mt-1" id="chg-ewt">--</div>
+                <div id="trend-ewt" class="text-[10px] mt-2 tracking-widest opacity-80 flex gap-1"></div>
+            </div>
+            <!-- USD/TWD -->
+            <div class="glass-panel p-4 md:p-5 rounded-xl shadow-lg">
+                <div class="text-[10px] md:text-xs text-slate-400 font-bold mb-1 uppercase">USD/TWD 匯率</div>
+                <div class="text-xl md:text-2xl font-black text-white" id="val-fx">--</div>
+                <div class="text-xs md:text-sm mt-1 text-slate-500">即時外匯</div>
+            </div>
+        </div>
+
+        <!-- 綜合分析區 -->
+        <div class="grid md:grid-cols-5 gap-6 mb-8">
+            <!-- 溢價計算面板 (佔 2 欄) -->
+            <div class="glass-panel rounded-xl p-6 md:col-span-2 shadow-xl flex flex-col justify-center items-center text-center">
+                <h2 class="text-slate-300 font-bold mb-4 tracking-widest text-sm">🔥 當前台積電溢價率</h2>
+                <div id="premium-val" class="text-5xl font-black mb-2">--</div>
+                <div class="text-slate-400 text-sm mt-2">
+                    ADR 折合台股合理價：<br>
+                    <span id="fair-val" class="text-xl font-bold text-white mt-1 inline-block">-- 元</span>
+                </div>
+            </div>
+
+            <!-- 策略分析面板 (佔 3 欄) -->
+            <div id="strategy-panel" class="glass-panel rounded-xl p-6 md:col-span-3 shadow-xl bg-neutral flex flex-col justify-center">
+                <h2 id="strategy-title" class="text-white font-bold mb-3 flex items-center gap-2">
+                    <i class="fa-solid fa-chess-knight"></i> 綜合開盤推演
+                </h2>
+                <p id="strategy-text" class="text-slate-300 leading-relaxed text-sm md:text-base">
+                    等待數據載入中，將綜合分析台積電溢價與 EWT 走勢...
+                </p>
+                
+                <div class="mt-4 pt-4 border-t border-slate-700/50 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                    <div>
+                        <span class="text-slate-400">台積電溢價：</span>
+                        <span id="tsm-signal" class="font-bold">--</span>
+                    </div>
+                    <div>
+                        <span class="text-slate-400">加權現況 (TWII)：</span>
+                        <span id="twii-signal" class="font-bold">--</span>
+                    </div>
+                    <div>
+                        <span class="text-slate-400">夜盤情緒 (EWT)：</span>
+                        <span id="ewt-signal" class="font-bold">--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 頁尾 -->
+        <div class="text-center text-slate-500 text-xs mt-8">
+            <p id="timestamp">最後更新：尚未載入</p>
+            <p class="mt-1">資料來源：Yahoo Finance (延遲報價)。本工具僅供參考，不構成投資建議。</p>
+        </div>
+    </div>
+
+    <script>
+        // --- 核心邏輯：多重代理請求機制 ---
+        async function fetchYahooData(ticker) {
+            // 將 range 改為 6d，以確保能算出近 5 日的漲跌趨勢
+            const url = encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=6d&ts=${Date.now()}`);
+            
+            const proxies = [
+                `https://api.allorigins.win/raw?url=${url}`,
+                `https://corsproxy.io/?${url}`,
+                `https://api.codetabs.com/v1/proxy?quest=${decodeURIComponent(url)}`
+            ];
+
+            for (let proxy of proxies) {
+                try {
+                    const response = await fetch(proxy, { cache: 'no-store', timeout: 5000 });
+                    if (response.ok) {
+                        const data = await response.json();
+                        const result = data.chart.result[0];
+                        
+                        // 過濾掉 null 的無效報價
+                        const closes = result.indicators.quote[0].close.filter(c => c !== null);
+                        if (closes.length < 2) throw new Error("數據不足");
+                        
+                        const price = closes[closes.length - 1];
+                        const prevClose = closes[closes.length - 2];
+                        const changePct = ((price - prevClose) / prevClose) * 100;
+
+                        // 計算近五日走勢燈號 (最多取最後 6 筆資料算出 5 個漲跌)
+                        const recentCloses = closes.slice(-6);
+                        let trendHtml = '<span class="text-slate-500 mr-1">5日:</span>';
+                        for (let i = 1; i < recentCloses.length; i++) {
+                            const diff = recentCloses[i] - recentCloses[i - 1];
+                            trendHtml += diff > 0 ? '<span class="text-up">▲</span>' : '<span class="text-down">▼</span>';
+                        }
+
+                        return { price, prevClose, changePct, trendHtml };
+                    }
+                } catch (error) {
+                    console.warn(`代理 ${proxy} 失敗，嘗試下一個...`);
+                }
+            }
+            throw new Error(`無法獲取 ${ticker} 的數據`);
+        }
+
+        // --- UI 更新工具 ---
+        function formatNumber(num, decimals = 2) {
+            return num.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+        }
+
+        function getChangeColorClass(change) {
+            if (change > 0) return 'text-up';
+            if (change < 0) return 'text-down';
+            return 'text-slate-400';
+        }
+
+        function formatChange(change) {
+            const sign = change > 0 ? '+' : '';
+            return `<span class="${getChangeColorClass(change)}">${sign}${formatNumber(change)}%</span>`;
+        }
+
+        function showStatus(message, isError = false) {
+            const statusEl = document.getElementById('status-message');
+            statusEl.className = `mb-6 p-4 rounded-lg text-sm font-bold flex items-center gap-2 ${isError ? 'bg-red-500/20 text-red-400 border border-red-500/50' : 'bg-blue-500/20 text-blue-400 border border-blue-500/50'} block`;
+            statusEl.innerHTML = isError ? `<i class="fa-solid fa-triangle-exclamation"></i> ${message}` : `<div class="spinner"></div> ${message}`;
+        }
+
+        function hideStatus() {
+            document.getElementById('status-message').className = 'hidden';
+        }
+
+        // --- 主程式：抓取並計算 ---
+        async function fetchMarketData() {
+            const btn = document.getElementById('refresh-btn');
+            const icon = document.getElementById('refresh-icon');
+            
+            icon.className = 'fa-solid fa-circle-notch fa-spin';
+            btn.disabled = true;
+            btn.classList.add('opacity-50');
+            showStatus("正在透過安全通道抓取全球即時報價與歷史走勢，請稍候...");
+
+            let tsm, tpe, twii, ewt, fx;
+            let isMockData = false;
+
+            try {
+                // 平行抓取所有數據
+                [tsm, tpe, twii, ewt, fx] = await Promise.all([
+                    fetchYahooData('TSM'),
+                    fetchYahooData('2330.TW'),
+                    fetchYahooData('^TWII'),
+                    fetchYahooData('EWT'),
+                    fetchYahooData('TWD=X')
+                ]);
+            } catch (error) {
+                console.error("API 抓取失敗，載入備用數據:", error);
+                isMockData = true;
+                showStatus("代理伺服器目前擁塞，已自動切換為備用數據。", true);
+                
+                const mockTrend = '<span class="text-slate-500 mr-1">5日:</span><span class="text-up">▲</span><span class="text-up">▲</span><span class="text-down">▼</span><span class="text-up">▲</span><span class="text-up">▲</span>';
+                tsm = { price: 357.44, changePct: 3.5, trendHtml: mockTrend };
+                tpe = { price: 1905.00, changePct: 1.2, trendHtml: mockTrend };
+                twii = { price: 21500.50, changePct: 0.8, trendHtml: mockTrend }; 
+                ewt = { price: 46.50, changePct: -2.1, trendHtml: mockTrend }; 
+                fx = { price: 31.72, changePct: 0.1 };
+            }
+
+            if (!isMockData) hideStatus();
+
+            // 更新基本數據卡片與走勢
+            document.getElementById('val-tsm').innerText = `$${formatNumber(tsm.price)}`;
+            document.getElementById('chg-tsm').innerHTML = formatChange(tsm.changePct);
+            document.getElementById('trend-tsm').innerHTML = tsm.trendHtml;
+            
+            document.getElementById('val-2330').innerText = `NT$${formatNumber(tpe.price, 0)}`;
+            document.getElementById('chg-2330').innerHTML = formatChange(tpe.changePct);
+            document.getElementById('trend-2330').innerHTML = tpe.trendHtml;
+
+            document.getElementById('val-twii').innerText = `${formatNumber(twii.price, 0)}`;
+            document.getElementById('chg-twii').innerHTML = formatChange(twii.changePct);
+            document.getElementById('trend-twii').innerHTML = twii.trendHtml;
+
+            document.getElementById('val-ewt').innerText = `$${formatNumber(ewt.price)}`;
+            document.getElementById('chg-ewt').innerHTML = formatChange(ewt.changePct);
+            document.getElementById('trend-ewt').innerHTML = ewt.trendHtml;
+
+            document.getElementById('val-fx').innerText = formatNumber(fx.price, 3);
+
+            // 計算溢價
+            const fairValue = (tsm.price * fx.price) / 5;
+            const premiumPct = ((fairValue - tpe.price) / tpe.price) * 100;
+
+            document.getElementById('fair-val').innerText = `${formatNumber(fairValue)} 元`;
+            
+            const premEl = document.getElementById('premium-val');
+            premEl.innerText = `${premiumPct > 0 ? '+' : ''}${formatNumber(premiumPct)}%`;
+            premEl.className = `text-5xl font-black mb-2 ${getChangeColorClass(premiumPct)}`;
+
+            // --- 判斷當前觀測時間焦點 ---
+            const currentHour = new Date().getHours();
+            // 台灣時間 05:00 到 14:00 預估台股開盤/盤中；其餘時間預估美股夜盤
+            const isTaiwanFocus = currentHour >= 5 && currentHour < 14;
+
+            // --- 綜合策略分析邏輯 ---
+            analyzeStrategy(premiumPct, twii.changePct, ewt.changePct, tsm.changePct, isTaiwanFocus);
+
+            // 恢復按鈕狀態
+            document.getElementById('timestamp').innerText = `最後更新：${new Date().toLocaleString()} ${isMockData ? '(離線備用數據)' : '(即時連線)'}`;
+            icon.className = 'fa-solid fa-arrows-rotate';
+            btn.disabled = false;
+            btn.classList.remove('opacity-50');
+        }
+
+        function analyzeStrategy(premium, twiiChange, ewtChange, tsmChange, isTaiwanFocus) {
+            const panel = document.getElementById('strategy-panel');
+            const titleEl = document.getElementById('strategy-title');
+            const textEl = document.getElementById('strategy-text');
+            const tsmSignal = document.getElementById('tsm-signal');
+            const twiiSignal = document.getElementById('twii-signal');
+            const ewtSignal = document.getElementById('ewt-signal');
+
+            let analysis = "";
+            let tsmStr = "";
+            let twiiStr = "";
+            let ewtStr = "";
+            let panelClass = "glass-panel rounded-xl p-6 md:col-span-3 shadow-xl flex flex-col justify-center ";
+
+            // 根據焦點更新標題
+            if (isTaiwanFocus) {
+                titleEl.innerHTML = '<i class="fa-solid fa-chess-knight text-yellow-400"></i> 🇹🇼 當前焦點：台股開盤推演 (預估 2330/加權)';
+            } else {
+                titleEl.innerHTML = '<i class="fa-solid fa-chess-knight text-blue-400"></i> 🇺🇸 當前焦點：美股夜盤推演 (預估 TSM/EWT)';
+            }
+
+            // 1. 判斷台積電溢價動能
+            if (premium > 10) {
+                tsmStr = '<span class="text-up">極度強勢 (跳空看漲)</span>';
+            } else if (premium > 2) {
+                tsmStr = '<span class="text-up">多頭排列 (偏多)</span>';
+            } else if (premium >= -1 && premium <= 2) {
+                tsmStr = '<span class="text-slate-300">中性收斂</span>';
+            } else {
+                tsmStr = '<span class="text-down">折價弱勢 (開盤承壓)</span>';
+            }
+            tsmSignal.innerHTML = tsmStr;
+
+            // 2. 判斷台股加權指數 (昨日基期)
+            if (twiiChange > 1) {
+                twiiStr = '<span class="text-up">昨日強勢大漲</span>';
+            } else if (twiiChange > 0) {
+                twiiStr = '<span class="text-up">昨日收紅偏多</span>';
+            } else if (twiiChange > -1) {
+                twiiStr = '<span class="text-slate-300">昨日橫盤震盪</span>';
+            } else {
+                twiiStr = '<span class="text-down">昨日弱勢下挫</span>';
+            }
+            twiiSignal.innerHTML = twiiStr;
+
+            // 3. 判斷 EWT 夜盤大盤動能
+            if (ewtChange > 1) {
+                ewtStr = '<span class="text-up">夜盤外資強力作多</span>';
+            } else if (ewtChange > 0) {
+                ewtStr = '<span class="text-up">夜盤情緒樂觀</span>';
+            } else if (ewtChange > -1) {
+                ewtStr = '<span class="text-slate-300">夜盤震盪盤整</span>';
+            } else {
+                ewtStr = '<span class="text-down">夜盤外資提款</span>';
+            }
+            ewtSignal.innerHTML = ewtStr;
+
+            // 4. 綜合判定劇本 (加入日夜盤時間軸邏輯)
+            if (isTaiwanFocus) {
+                // 🇹🇼 早上觀看：預測台股
+                if (premium > 5 && ewtChange > 0.5 && twiiChange >= 0) {
+                    panelClass += "bg-up";
+                    analysis = "<strong>🚀 劇本：強勢延續，全面上攻 (台股)</strong><br>夜盤 EWT 大漲，台積電享有高溢價。外資買盤源源不絕，今日台股極高機率呈現<strong>「大盤跳空開高、百花齊放」</strong>格局，順勢作多勝率極高。";
+                } 
+                else if (premium > 5 && ewtChange < 0 && twiiChange > 0) {
+                    panelClass += "bg-neutral";
+                    analysis = "<strong>🎭 劇本：標準「拉積盤」 (台股)</strong><br>台積電溢價極高將獨自撐盤，但 EWT 卻逆勢下跌，暗示外資夜盤正在倒貨非台積電的中小型股。今日操作<strong>應避開非半導體權值股</strong>。";
+                }
+                else if (premium < 0 && ewtChange < -0.5) {
+                    panelClass += "bg-down";
+                    analysis = "<strong>⚠️ 劇本：全面下殺補跌 (台股)</strong><br>台積電出現折價且 EWT 走弱。外資夜盤撤出跡象明顯，今日開盤將面臨沉重賣壓。建議<strong>多看少做，嚴格控管資金風險</strong>。";
+                }
+                else if (ewtChange > twiiChange + 1) {
+                    panelClass += "bg-up";
+                    analysis = "<strong>🔥 劇本：台股大幅補漲 (台股)</strong><br>EWT 的漲幅遠超台股昨日表現，代表美股盤中出現重大利多。今日台股將迎來強烈補漲行情，開盤極易出現大型向上跳空缺口。";
+                }
+                else {
+                    panelClass += "bg-neutral";
+                    analysis = "<strong>⚖️ 劇本：多空交戰，區間震盪 (台股)</strong><br>目前溢價率、加權指數與 EWT 之間無單一明確方向，可能互相拉扯。今日開盤預計將回歸台股內資籌碼博弈，建議觀察開盤後半小時（9:30）的確認方向再決定策略。";
+                }
+            } else {
+                // 🇺🇸 盤後觀看：預測美股
+                if (premium > 5) {
+                    panelClass += "bg-up";
+                    analysis = "<strong>🚀 夜盤展望：TSM 具備推升動能</strong><br>台股今日強勢收盤，使得 TSM 產生大幅的套利溢價空間。預期今晚美股開盤，外資做多情緒將延續，TSM 與 EWT 皆有向上推升的動能，支撐夜盤表現。";
+                } else if (premium < -2) {
+                    panelClass += "bg-down";
+                    analysis = "<strong>⚠️ 夜盤展望：TSM 恐面臨補跌</strong><br>台股今日收盤價格大幅超越美股估值（嚴重折價）。代表台股可能過熱，今晚美股 TSM 開盤恐遭遇套利賣壓，需防範 EWT 與 TSM 同步走弱拖累明日台股。";
+                } else if (twiiChange > 1 && ewtChange < 0) {
+                    panelClass += "bg-up";
+                    analysis = "<strong>🔥 夜盤展望：EWT 落後補漲</strong><br>台股今日大漲，但昨晚的 EWT 尚未反應。這使得今晚 EWT 具備強烈的「補漲需求」，美股開盤後 EWT 往上跳空的機率極高。";
+                } else {
+                    panelClass += "bg-neutral";
+                    analysis = "<strong>⚖️ 夜盤展望：收斂震盪</strong><br>目前台股收盤價與美股 TSM 估值接近，無明顯套利空間。今晚美股 EWT 與 TSM 的走勢將取決於美國當晚公佈的經濟數據或科技股（如 NVDA）的整體表現，偏向區間震盪。";
+                }
+            }
+
+            panel.className = panelClass;
+            textEl.innerHTML = analysis;
+        }
+
+        // 網頁載入時自動執行
+        window.onload = fetchMarketData;
+    </script>
+</body>
+</html>
