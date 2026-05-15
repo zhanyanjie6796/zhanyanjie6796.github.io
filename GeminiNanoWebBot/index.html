@@ -95,8 +95,45 @@
         </div>
     </div>
 
+    <!-- Download Modal -->
+    <div id="download-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
+            <h3 class="text-lg font-bold text-blue-600 mb-2"><i class="fas fa-download mr-2"></i>需要下載 AI 模型</h3>
+            
+            <div id="dl-prompt-content">
+                <p class="text-sm text-slate-600 mb-4">
+                    您的環境目前尚未準備好 Gemini Nano 模型，我們需要先將其下載到您的設備上。
+                </p>
+                <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-800">
+                    <p class="font-bold mb-1"><i class="fas fa-exclamation-triangle mr-1"></i>重要注意事項：</p>
+                    <ul class="list-disc pl-5 space-y-1">
+                        <li><strong>空間需求</strong>：模型大約會占用 <strong>4GB ~ 5GB</strong> 的本機硬碟空間。</li>
+                        <li><strong>網路需求</strong>：請確保目前的網路連線穩定。</li>
+                        <li><strong>下載期間</strong>：請保持此網頁開啟，切勿關閉瀏覽器分頁或重新整理。</li>
+                    </ul>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="closeDownloadModal()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-xl font-medium transition-colors">稍後再說</button>
+                    <button onclick="startModelDownload()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-xl font-medium transition-colors">確認下載</button>
+                </div>
+            </div>
+
+            <!-- 下載進度條區塊 -->
+            <div id="dl-progress-content" class="hidden">
+                <p class="text-sm text-slate-600 mb-2 flex justify-between">
+                    <span>下載中，這可能需要幾分鐘...</span>
+                    <span id="dl-percentage" class="font-bold text-blue-600">0%</span>
+                </p>
+                <div class="w-full bg-slate-100 rounded-full h-3 mb-2 overflow-hidden border border-slate-200">
+                    <div id="dl-progress-bar" class="bg-blue-600 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         let aiSession = null;
+        let currentModelAPI = null;
         const chatBox = document.getElementById('chat-box');
         const userInput = document.getElementById('user-input');
         const sendBtn = document.getElementById('send-btn');
@@ -120,32 +157,99 @@
                     return;
                 }
 
+                currentModelAPI = modelAPI; // 儲存全域參考以供下載使用
+
                 // 相容不同版本的 API (availability 或 capabilities)
                 let isAvailable = "readily";
                 if (typeof modelAPI.availability === 'function') {
                     const availability = await modelAPI.availability({ languages: ["zh-Hant"] });
                     if (availability === "no") isAvailable = "no";
+                    if (availability === "after-download") isAvailable = "after-download";
                 } else if (typeof modelAPI.capabilities === 'function') {
                     const capabilities = await modelAPI.capabilities();
                     if (capabilities.available === "no") isAvailable = "no";
+                    if (capabilities.available === "after-download") isAvailable = "after-download";
                 }
                 
                 if (isAvailable === "no") {
                     updateStatus('不可用', 'bg-red-100 text-red-600', 'bg-red-500');
-                    showError("模型不可用。可能需要手動下載組件。");
+                    showError("您的設備目前不支援此模型。");
+                    return;
+                }
+
+                // 若狀態顯示需要下載，直接跳出下載視窗
+                if (isAvailable === "after-download") {
+                    updateStatus('需要下載', 'bg-yellow-100 text-yellow-600', 'bg-yellow-500');
+                    showDownloadModal();
                     return;
                 }
 
                 updateStatus('準備就緒', 'bg-green-100 text-green-600', 'bg-green-500');
                 
-                // 建立會話，並加入 systemPrompt 讓它預設使用繁體中文回答
+                // 建立會話
                 aiSession = await modelAPI.create({
                     systemPrompt: "你是一個有用的 AI 助手，請一律使用繁體中文 (Traditional Chinese) 回答使用者的所有問題。"
                 });
             } catch (e) {
-                console.error("初始化失敗:", e);
-                updateStatus('初始化失敗', 'bg-red-100 text-red-600', 'bg-red-500');
-                showError("初始化失敗：" + e.message + "\n\n💡 注意：目前您在「預覽視窗 (Iframe)」中執行。基於安全限制，Chrome 瀏覽器會阻擋 Iframe 調用本地端 AI API。\n\n👉 解決方法：請將這份程式碼存成 .html 檔案後，直接在 Chrome 瀏覽器中打開！");
+                console.warn("初始化失敗，嘗試呼叫下載流程:", e);
+                // 假如遇到沒有載入模型而產生的 Error，提供下載按鈕
+                if (currentModelAPI) {
+                    updateStatus('需要下載', 'bg-yellow-100 text-yellow-600', 'bg-yellow-500');
+                    showDownloadModal(); 
+                } else {
+                    updateStatus('初始化失敗', 'bg-red-100 text-red-600', 'bg-red-500');
+                    showError("初始化失敗：" + e.message);
+                }
+            }
+        }
+
+        // 下載相關的控制函數
+        function showDownloadModal() {
+            document.getElementById('dl-prompt-content').classList.remove('hidden');
+            document.getElementById('dl-progress-content').classList.add('hidden');
+            document.getElementById('download-modal').classList.replace('hidden', 'flex');
+        }
+
+        function closeDownloadModal() {
+            document.getElementById('download-modal').classList.replace('flex', 'hidden');
+        }
+
+        // 開始下載並綁定 monitor
+        async function startModelDownload() {
+            if (!currentModelAPI) return;
+            
+            // 切換到進度條介面
+            document.getElementById('dl-prompt-content').classList.add('hidden');
+            document.getElementById('dl-progress-content').classList.remove('hidden');
+            updateStatus('正在下載模型...', 'bg-blue-100 text-blue-600', 'animate-pulse bg-blue-500');
+
+            try {
+                aiSession = await currentModelAPI.create({
+                    systemPrompt: "你是一個有用的 AI 助手，請一律使用繁體中文 (Traditional Chinese) 回答使用者的所有問題。",
+                    monitor(m) {
+                        m.addEventListener('downloadprogress', (e) => {
+                            let percentage = 0;
+                            if (e.total) {
+                                percentage = Math.round((e.loaded / e.total) * 100);
+                            } else {
+                                percentage = Math.round(e.loaded * 100); 
+                            }
+                            
+                            percentage = Math.min(100, Math.max(0, percentage)); 
+                            
+                            document.getElementById('dl-percentage').innerText = `${percentage}%`;
+                            document.getElementById('dl-progress-bar').style.width = `${percentage}%`;
+                            console.log(`Downloaded ${percentage}%`);
+                        });
+                    }
+                });
+                
+                closeDownloadModal();
+                updateStatus('準備就緒', 'bg-green-100 text-green-600', 'bg-green-500');
+            } catch (e) {
+                closeDownloadModal();
+                updateStatus('下載失敗', 'bg-red-100 text-red-600', 'bg-red-500');
+                showError("下載或初始化模型時發生錯誤：" + e.message);
             }
         }
 
@@ -159,25 +263,20 @@
             const text = userInput.value.trim();
             if (!text || !aiSession) return;
 
-            // 清空輸入並加入使用者氣泡
             addMessage(text, 'user');
             userInput.value = '';
             userInput.style.height = 'auto';
             
-            // 顯示思考中
             typingIndicator.classList.remove('hidden');
             chatBox.scrollTop = chatBox.scrollHeight;
             sendBtn.disabled = true;
 
             try {
-                const startTime = performance.now(); // 記錄開始時間
-                // 呼叫 Gemini Nano API (如同你圖片中的 session.prompt)
-                // 如果你的版本支援串流，可以使用 promptStreaming()
+                const startTime = performance.now();
                 const result = await aiSession.prompt(text);
-                const endTime = performance.now(); // 記錄結束時間
-                const timeTaken = ((endTime - startTime) / 1000).toFixed(2); // 計算耗時 (秒)，取小數點後兩位
+                const endTime = performance.now();
+                const timeTaken = ((endTime - startTime) / 1000).toFixed(2);
                 
-                // 隱藏思考中並加入 AI 氣泡
                 typingIndicator.classList.add('hidden');
                 addMessage(result, 'ai', timeTaken);
             } catch (e) {
@@ -206,7 +305,6 @@
                 meta = "系統錯誤";
             }
 
-            // 處理換行
             const formattedText = text.replace(/\n/g, '<br>');
 
             wrapper.innerHTML = `
