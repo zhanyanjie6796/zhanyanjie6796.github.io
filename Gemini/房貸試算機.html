@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>房貸試算機</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f3f4f6;
+            color: #1f2937;
+        }
+        
+        /* 自訂 input number 不要顯示預設的上下箭頭 */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+    </style>
+</head>
+<body class="flex justify-center items-center min-h-screen p-4">
+
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 sm:p-8">
+        <h2 class="text-2xl font-bold text-center text-gray-800 mb-6 flex items-center justify-center gap-2">
+            🏠 房貸試算機
+        </h2>
+        
+        <div class="space-y-4">
+            <!-- 房屋總價 -->
+            <div>
+                <label for="total-price" class="block text-sm font-medium text-gray-700 mb-1">房屋總價</label>
+                <div class="relative rounded-md shadow-sm">
+                    <input type="number" id="total-price" value="800" 
+                        class="block w-full rounded-md border-gray-300 pl-3 pr-12 py-2 focus:border-blue-500 focus:ring-blue-500 sm:text-sm border" placeholder="請輸入總價">
+                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+                        <span class="text-gray-500 sm:text-sm">萬元</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 預計貸款成數 -->
+            <div>
+                <label for="ltv" class="block text-sm font-medium text-gray-700 mb-1">預計貸款成數</label>
+                <div class="relative rounded-md shadow-sm">
+                    <input type="number" id="ltv" value="80" max="100" min="0" 
+                        class="block w-full rounded-md border-gray-300 pl-3 pr-12 py-2 focus:border-blue-500 focus:ring-blue-500 sm:text-sm border" placeholder="例如: 80">
+                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+                        <span class="text-gray-500 sm:text-sm">% (成)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 貸款年限 -->
+            <div>
+                <label for="years" class="block text-sm font-medium text-gray-700 mb-1">貸款年限</label>
+                <div class="relative rounded-md shadow-sm">
+                    <input type="number" id="years" value="20" min="1" max="40" 
+                        class="block w-full rounded-md border-gray-300 pl-3 pr-12 py-2 focus:border-blue-500 focus:ring-blue-500 sm:text-sm border" placeholder="例如: 20">
+                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+                        <span class="text-gray-500 sm:text-sm">年</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 房貸年利率 -->
+            <div>
+                <label for="rate" class="block text-sm font-medium text-gray-700 mb-1">房貸年利率</label>
+                <div class="relative rounded-md shadow-sm">
+                    <input type="number" id="rate" value="2.2" step="0.01" 
+                        class="block w-full rounded-md border-gray-300 pl-3 pr-12 py-2 focus:border-blue-500 focus:ring-blue-500 sm:text-sm border" placeholder="例如: 2.2">
+                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+                        <span class="text-gray-500 sm:text-sm">%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 計算按鈕 -->
+            <button onclick="calculateMortgage()" 
+                class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200 mt-6">
+                開始計算
+            </button>
+        </div>
+
+        <!-- 結果顯示區塊 (預設隱藏) -->
+        <div id="result-box" class="hidden mt-8 pt-6 border-t border-gray-200">
+            <h3 class="text-lg font-medium text-gray-900 mb-4">試算結果</h3>
+            <div class="space-y-3 bg-gray-50 p-4 rounded-lg">
+                <div class="flex justify-between items-center text-sm">
+                    <span class="text-gray-600">需準備頭期款：</span>
+                    <span id="res-downpayment" class="font-semibold text-gray-900">0 元</span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                    <span class="text-gray-600">實際貸款總額：</span>
+                    <span id="res-loanamount" class="font-semibold text-gray-900">0 元</span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                    <span id="res-interest-label" class="text-gray-600">總繳利息：</span>
+                    <span id="res-interest" class="font-semibold text-gray-900">0 元</span>
+                </div>
+                
+                <div class="pt-3 mt-3 border-t border-gray-200 flex flex-col items-center justify-center">
+                    <span class="text-gray-600 text-sm mb-1">每月應繳金額</span>
+                    <span id="res-monthly" class="text-3xl font-bold text-red-600">0 元</span>
+                </div>
+            </div>
+            <p class="text-xs text-gray-500 mt-4 text-center">
+                * 本試算結果採「本息平均攤還」法，無寬限期。<br>
+                實際核貸條件與還款金額請以申辦銀行提供為準。
+            </p>
+        </div>
+    </div>
+
+    <script>
+        function showMessage(msg) {
+            // 建立一個自訂的訊息框取代 alert
+            const msgBox = document.createElement('div');
+            msgBox.className = 'fixed top-4 left-1/2 transform -translate-x-1/2 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded shadow-md z-50 transition-opacity duration-300';
+            msgBox.innerHTML = `<span class="block sm:inline">${msg}</span>`;
+            document.body.appendChild(msgBox);
+            
+            // 3秒後自動消失
+            setTimeout(() => {
+                msgBox.style.opacity = '0';
+                setTimeout(() => msgBox.remove(), 300);
+            }, 3000);
+        }
+
+        function calculateMortgage() {
+            // 1. 取得使用者輸入的值
+            const totalPriceWan = parseFloat(document.getElementById('total-price').value);
+            const ltv = parseFloat(document.getElementById('ltv').value);
+            const years = parseFloat(document.getElementById('years').value);
+            const annualRate = parseFloat(document.getElementById('rate').value);
+
+            // 2. 防呆驗證
+            if (isNaN(totalPriceWan) || isNaN(ltv) || isNaN(years) || isNaN(annualRate)) {
+                showMessage("請確保所有欄位都已填寫數字！");
+                return;
+            }
+            if (totalPriceWan <= 0 || ltv <= 0 || years <= 0 || annualRate < 0) {
+                showMessage("請輸入大於 0 的有效數值！");
+                return;
+            }
+            if (ltv > 100) {
+                 showMessage("貸款成數不能超過 100% 喔！");
+                 return;
+            }
+
+            // 3. 數值轉換與計算準備
+            const totalPrice = totalPriceWan * 10000; // 將「萬元」轉換為「元」
+            const loanAmount = Math.round(totalPrice * (ltv / 100)); // 實際貸款總額
+            const downPayment = Math.round(totalPrice - loanAmount); // 需要準備的頭期款
+            
+            const months = years * 12; // 總還款期數(月)
+            const monthlyRate = (annualRate / 100) / 12; // 月利率
+
+            let monthlyPayment = 0;
+            
+            // 4. 核心計算：本息平均攤還公式
+            // 每月應付本息金額之平均攤還率 ＝ {[(1＋月利率)^月數]×月利率}÷{[(1＋月利率)^月數]－1}
+            if (monthlyRate > 0) {
+                const mathPower = Math.pow(1 + monthlyRate, months);
+                monthlyPayment = loanAmount * ((mathPower * monthlyRate) / (mathPower - 1));
+            } else {
+                // 防呆：如果遇到極端情況利率為0，直接本金除以期數
+                monthlyPayment = loanAmount / months;
+            }
+
+            // 算出每月繳款後，計算總金額與總利息
+            const totalPayment = monthlyPayment * months; // 總還款額 (本金 + 利息)
+            const totalInterest = Math.round(totalPayment - loanAmount); // 總利息
+
+            // 5. 格式化數字 (加上千分位逗號，並四捨五入)
+            const formatMoney = (num) => Math.round(num).toLocaleString('zh-TW');
+            
+            // 將大筆金額轉換為「萬」為單位 (取到小數點後兩位)
+            const formatWan = (num) => (num / 10000).toLocaleString('zh-TW', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+            // 6. 更新 UI 顯示結果
+            document.getElementById('res-downpayment').innerText = formatWan(downPayment) + ' 萬';
+            document.getElementById('res-loanamount').innerText = formatWan(loanAmount) + ' 萬';
+            document.getElementById('res-interest').innerText = formatWan(totalInterest) + ' 萬';
+            
+            // 每月應繳金額保持「元」為單位
+            document.getElementById('res-monthly').innerText = formatMoney(monthlyPayment) + ' 元';
+            
+            // 動態更新利息標籤的年份
+            document.getElementById('res-interest-label').innerText = `${years}年總繳利息：`;
+
+            // 移除隱藏 class，顯示結果區塊
+            document.getElementById('result-box').classList.remove('hidden');
+            
+            // 加入簡單的淡入動畫效果
+            document.getElementById('result-box').classList.add('animate-fade-in-up');
+        }
+
+        // 新增：監聽所有 input 欄位，按下 Enter 鍵即觸發計算
+        document.addEventListener('DOMContentLoaded', (event) => {
+            const inputs = document.querySelectorAll('input[type="number"]');
+            inputs.forEach(input => {
+                input.addEventListener('keypress', function (e) {
+                    if (e.key === 'Enter') {
+                        calculateMortgage();
+                    }
+                });
+            });
+        });
+    </script>
+    
+    <style>
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translate3d(0, 10px, 0);
+            }
+            to {
+                opacity: 1;
+                transform: translate3d(0, 0, 0);
+            }
+        }
+        .animate-fade-in-up {
+            animation: fadeInUp 0.4s ease-out;
+        }
+    </style>
+</body>
+</html>
