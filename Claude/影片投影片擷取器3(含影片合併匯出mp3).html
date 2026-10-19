@@ -1,0 +1,1071 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>影片投影片擷取器</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+<style>
+/* Layout: one narrow column of three sequential panels (影片 → 範圍 → 結果), results grid widens to fill */
+:root{
+  --bg:#f3f4f7; --surface:#ffffff; --fg:#1b2230; --muted:#5d6779; --line:#dde1e9;
+  --accent:#1f5fbf; --accent-soft:#e6eefb; --on-accent:#ffffff;
+  --warn:#b35c00; --warn-soft:#fff1e0; --off:#9aa3b2; --overlay:rgba(14,18,26,.62);
+  --f-display:"Noto Serif TC","Songti TC",serif;
+  --f-body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#11151c; --surface:#1a1f28; --fg:#e6eaf1; --muted:#9aa4b5; --line:#2c3340;
+  --accent:#7fa8f0; --accent-soft:#1f2b40; --on-accent:#0d1420;
+  --warn:#f0a95a; --warn-soft:#3a2a16; --off:#5d6676; --overlay:rgba(0,0,0,.7); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11151c; --surface:#1a1f28; --fg:#e6eaf1; --muted:#9aa4b5; --line:#2c3340;
+  --accent:#7fa8f0; --accent-soft:#1f2b40; --on-accent:#0d1420;
+  --warn:#f0a95a; --warn-soft:#3a2a16; --off:#5d6676; --overlay:rgba(0,0,0,.7); color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.6;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+header h1{font-family:var(--f-display);font-size:30px;line-height:1.25;margin:0;text-wrap:balance}
+header p{margin:6px 0 0;color:var(--muted);max-width:62ch}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.panel h2{margin:0;font-size:17px;display:flex;align-items:baseline;gap:10px}
+.panel h2 .n{font-family:var(--f-mono);font-size:13px;color:var(--accent);font-weight:500}
+.panel[aria-disabled="true"]{opacity:.5;pointer-events:none}
+.hint{color:var(--muted);font-size:13.5px;margin:0}
+.drop{border:1.5px dashed var(--line);border-radius:8px;padding:24px 16px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+.drop:hover,.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop strong{display:block;font-size:16px}
+.drop input{display:none}
+.files{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.files li{display:grid;grid-template-columns:2.2em minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:8px 10px;border-top:1px solid var(--line);font-size:14px}
+.files li:first-child{border-top:0}
+.files .ix{font-family:var(--f-mono);color:var(--accent);font-size:13px;text-align:right}
+.files .nm{overflow-wrap:anywhere;min-width:0}
+.files .nm small{display:block;font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.files .bad{color:var(--warn);font-family:var(--f-body)}
+.files button{padding:2px 9px;font-size:13px}
+.files li.total{background:var(--bg);font-size:13.5px;grid-template-columns:minmax(0,1fr) auto}
+.files li.total b{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-weight:500}
+.meta{font-family:var(--f-mono);font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;word-break:break-all}
+.err{background:var(--warn-soft);color:var(--warn);border-radius:6px;padding:10px 12px;font-size:14px}
+.cropbox{position:relative;max-width:100%;background:#000;border-radius:6px;overflow:hidden;cursor:crosshair;touch-action:none}
+.cropbox canvas{display:block;width:100%;height:auto}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px 20px}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.field label{font-size:13.5px;font-weight:500}
+.field .row{display:flex;align-items:center;gap:10px}
+.field input[type=range]{flex:1;accent-color:var(--accent)}
+.field output{font-family:var(--f-mono);font-size:13px;min-width:4.5ch;text-align:right;font-variant-numeric:tabular-nums}
+.field small{color:var(--muted);font-size:12.5px}
+.nums{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.nums label{font-family:var(--f-mono);font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:4px}
+.nums input{width:72px;font-family:var(--f-mono);font-size:13px;padding:4px 6px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--fg)}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:14px}
+.check input{margin-top:5px;accent-color:var(--accent)}
+.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+button{font:inherit;font-size:14px;border-radius:6px;padding:8px 16px;cursor:pointer;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:500}
+button:disabled{opacity:.45;cursor:not-allowed}
+select{font:inherit;font-size:14px;border-radius:6px;padding:7px 10px;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+#fileActions .status{flex-basis:100%}
+button:focus-visible,.drop:focus-visible,.card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.progress{display:flex;flex-direction:column;gap:6px}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+.status{font-family:var(--f-mono);font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.summary{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:14px}
+.summary b{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.card{position:relative;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--bg);cursor:pointer}
+.card img{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#000}
+.card .cap{display:flex;justify-content:space-between;align-items:center;padding:5px 8px;font-family:var(--f-mono);font-size:12px;color:var(--muted);gap:6px}
+.card .tag{font-family:var(--f-body);font-size:11.5px;padding:0 6px;border-radius:3px;background:var(--warn-soft);color:var(--warn)}
+.card.off img{opacity:.28;filter:grayscale(1)}
+.card.off .cap{text-decoration:line-through}
+.card .tog{position:absolute;top:6px;right:6px;width:26px;height:26px;padding:0;border-radius:50%;font-size:14px;line-height:1;background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.card.off .tog{background:var(--surface);color:var(--off);border-color:var(--off)}
+.lb{position:fixed;inset:0;background:var(--overlay);display:flex;align-items:center;justify-content:center;z-index:20;
+  padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.lb figure{margin:0;max-width:min(1200px,100%);display:flex;flex-direction:column;gap:10px}
+.lb img{max-width:100%;max-height:78vh;object-fit:contain;background:#000;border-radius:4px}
+.lb figcaption{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;color:#e6eaf1;font-family:var(--f-mono);font-size:13px}
+.lb.off img{opacity:.35}
+.foot{color:var(--muted);font-size:12.5px;margin:0}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>影片投影片擷取器</h1>
+    <p>把上課或演講的錄影變成投影片 PDF。可以一次放進好幾段影片，會依檔名排序後接成一段處理。影片只在你的瀏覽器裡處理，不會上傳到任何地方。建議使用 Chrome 或 Edge。</p>
+  </header>
+
+  <section class="panel" id="p1">
+    <h2><span class="n">1</span>選擇影片</h2>
+    <label class="drop" id="drop" tabindex="0">
+      <input type="file" id="file" accept="video/*,.mkv,.mp4,.webm,.mov" multiple>
+      <strong>把影片拖到這裡，或點一下選擇檔案（可多選）</strong>
+      <span class="hint">支援 MP4、WebM，以及多數 H.264 編碼的 MKV。再次加入的檔案會併進清單，依檔名排序。</span>
+    </label>
+    <ul class="files" id="files" hidden></ul>
+    <div class="actions" id="fileActions" hidden>
+      <button id="mergeSave" type="button">合併並另存影片</button>
+      <button id="mp3Save" type="button">匯出 MP3</button>
+      <select id="mp3Q" aria-label="MP3 音質">
+        <option value="64/1">語音 64 kbps 單聲道</option>
+        <option value="128/2" selected>標準 128 kbps 立體聲</option>
+        <option value="192/2">高音質 192 kbps 立體聲</option>
+      </select>
+      <button id="clearAll" type="button">清除全部</button>
+      <span class="status" id="mergeStatus"></span>
+    </div>
+    <div class="progress" id="mergeProg" hidden><div class="bar"><i id="mergeBar"></i></div></div>
+    <div class="err" id="err1" hidden></div>
+  </section>
+
+  <section class="panel" id="p2" aria-disabled="true">
+    <h2><span class="n">2</span>確認投影片範圍與偵測設定</h2>
+    <p class="hint">藍框是自動偵測到的投影片位置。框不對的話，直接在畫面上拖曳重畫一個框。</p>
+    <div class="cropbox" id="cropbox"><canvas id="cropcv" width="1280" height="720"></canvas></div>
+    <div class="nums">
+      <label>X <input id="cx" type="number" min="0"></label>
+      <label>Y <input id="cy" type="number" min="0"></label>
+      <label>寬 <input id="cw" type="number" min="16"></label>
+      <label>高 <input id="ch" type="number" min="16"></label>
+      <button id="autoCrop" type="button">重新自動偵測</button>
+      <button id="fullCrop" type="button">使用整個畫面</button>
+      <button id="nextFrame" type="button">換一張預覽</button>
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label for="step">取樣間隔</label>
+        <div class="row"><input type="range" id="step" min="0.5" max="3" step="0.5" value="1"><output id="stepO">1 秒</output></div>
+        <small>間隔越短越不會漏頁，但掃描越慢</small>
+      </div>
+      <div class="field">
+        <label for="thr">換頁靈敏度門檻</label>
+        <div class="row"><input type="range" id="thr" min="1" max="12" step="0.5" value="3"><output id="thrO">3</output></div>
+        <small>數字越小越敏感，切出的頁數越多</small>
+      </div>
+      <div class="field">
+        <label for="minStay">最短停留時間</label>
+        <div class="row"><input type="range" id="minStay" min="1" max="6" step="1" value="2"><output id="minStayO">2 秒</output></div>
+        <small>停留比這短的畫面視為轉場，略過</small>
+      </div>
+      <div class="field">
+        <label for="ignoreB">比對時忽略底部</label>
+        <div class="row"><input type="range" id="ignoreB" min="0" max="25" step="1" value="12"><output id="ignoreBO">12%</output></div>
+        <small>避開播放器控制列、字幕造成的誤判</small>
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="dedupe" checked><span>標記重複出現的頁面（講者跳回前面時），預設不放進 PDF</span></label>
+    <div class="actions">
+      <button class="primary" id="scan" type="button">開始擷取</button>
+      <button id="cancel" type="button" hidden>取消</button>
+    </div>
+    <div class="progress" id="prog" hidden>
+      <div class="bar"><i id="barI"></i></div>
+      <div class="status" id="status"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="p3" aria-disabled="true">
+    <h2><span class="n">3</span>挑選頁面並匯出</h2>
+    <p class="hint">點縮圖右上角的勾可以排除或加回該頁；點圖片放大檢視，用 ← → 切換、空白鍵切換保留、Esc 關閉。動畫逐步出現的投影片通常會產生好幾張，可以只留最完整的那張。</p>
+    <div class="summary" id="summary"></div>
+    <div class="actions">
+      <button id="reanalyze" type="button" disabled title="用新的門檻與停留時間重新分頁，不必重新掃描">套用新設定重新分頁</button>
+      <button class="primary" id="exportPdf" type="button" disabled>匯出 PDF</button>
+      <span class="status" id="expStatus"></span>
+    </div>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <p class="foot">原理：每隔固定秒數擷取一張畫面，比較相鄰兩張的差異，差異突然變大就判定為換頁，每頁取換頁前最後的穩定畫面。合併影片時直接搬移原始影像資料，不重新編碼，畫質不變；目前只支援 MKV 與 WebM。</p>
+</div>
+
+<div class="lb" id="lb" hidden>
+  <figure>
+    <img id="lbImg" alt="投影片放大檢視">
+    <figcaption><span id="lbCap"></span><span class="actions"><button id="lbPrev" type="button">←</button><button id="lbTog" type="button"></button><button id="lbNext" type="button">→</button><button id="lbClose" type="button">關閉</button></span></figcaption>
+  </figure>
+</div>
+
+<video id="vid" muted playsinline preload="auto" hidden></video>
+
+<script>
+(() => {
+const $ = s => document.querySelector(s);
+const video = $('#vid');
+const SW = 128, SH = 72;               // signature size
+let fileName = 'slides', W = 0, H = 0, dur = 0;
+let items = [];                         // every selected file, sorted by name
+let timeline = [];                      // playable items with .offset
+let cur = -1;                           // index in timeline loaded in <video>
+let crop = null;                        // {x,y,w,h} in frame pixels
+let previewT = 0;
+let sigs = [], times = [];              // scan results
+let cands = [];                         // {t, part, url, blob, keep, dup}
+let busy = false, abortFlag = false;
+let lbIndex = -1;
+
+const fmt = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60;
+  return (h ? h + ':' + String(m).padStart(2,'0') : m) + ':' + String(x).padStart(2,'0'); };
+const mb = n => (n/1048576 >= 1024 ? (n/1073741824).toFixed(2) + ' GB' : (n/1048576).toFixed(0) + ' MB');
+const byName = (a, b) => a.name.localeCompare(b.name, 'zh-Hant', { numeric: true, sensitivity: 'base' });
+
+/* ---------- settings outputs ---------- */
+const outs = [['step','stepO',v=>v+' 秒'],['thr','thrO',v=>v],['minStay','minStayO',v=>v+' 秒'],['ignoreB','ignoreBO',v=>v+'%']];
+outs.forEach(([i,o,f]) => { const el = $('#'+i); const up = () => $('#'+o).textContent = f(el.value); el.addEventListener('input', up); up(); });
+['thr','minStay','dedupe'].forEach(i => $('#'+i).addEventListener('input', () => { if (sigs.length) $('#reanalyze').disabled = busy; }));
+
+/* ---------- file selection ---------- */
+const drop = $('#drop');
+drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#file').click(); } });
+['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => addFiles([...e.dataTransfer.files]));
+$('#file').addEventListener('change', e => { addFiles([...e.target.files]); e.target.value = ''; });
+$('#clearAll').addEventListener('click', () => { if (busy) return; items.forEach(it => URL.revokeObjectURL(it.url)); items = []; rebuild(); });
+
+function showErr(msg){ const e = $('#err1'); e.textContent = msg; e.hidden = !msg; }
+
+function probe(it){
+  return new Promise(res => {
+    const v = document.createElement('video'); v.muted = true; v.preload = 'auto';
+    const done = r => { clearTimeout(t); v.removeAttribute('src'); v.load(); res(r); };
+    const t = setTimeout(() => done({ ok: false }), 20000);
+    v.onloadeddata = () => (v.videoWidth && isFinite(v.duration)) ? done({ ok: true, dur: v.duration, w: v.videoWidth, h: v.videoHeight }) : done({ ok: false });
+    v.onerror = () => done({ ok: false });
+    v.src = it.url;
+  });
+}
+
+async function addFiles(list){
+  if (busy) return;
+  list = list.filter(f => /^video\//.test(f.type) || /\.(mkv|mp4|webm|mov|m4v)$/i.test(f.name));
+  if (!list.length) return;
+  busy = true; showErr('');
+  for (const f of list) {
+    if (items.some(it => it.name === f.name && it.size === f.size)) continue;
+    const it = { file: f, name: f.name, size: f.size, url: URL.createObjectURL(f) };
+    items.push(it);
+  }
+  items.sort(byName);
+  renderFiles('讀取影片資訊中…');
+  for (const it of items) if (it.ok === undefined) Object.assign(it, await probe(it));
+  busy = false;
+  await rebuild();
+}
+
+function renderFiles(note){
+  const ul = $('#files'); ul.textContent = '';
+  ul.hidden = !items.length; $('#fileActions').hidden = !items.length;
+  items.forEach((it, i) => {
+    const li = document.createElement('li');
+    const ix = document.createElement('span'); ix.className = 'ix'; ix.textContent = i + 1;
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = it.name;
+    const sm = document.createElement('small');
+    if (it.ok === undefined) sm.textContent = '讀取中…';
+    else if (!it.ok) { sm.className = 'bad'; sm.textContent = '這個瀏覽器無法播放，會略過這部'; }
+    else sm.textContent = `${fmt(it.dur)} · ${it.w}×${it.h}` + (W && (it.w !== W || it.h !== H) ? ` · 解析度不同，會縮放成 ${W}×${H}` : '');
+    nm.append(sm);
+    const sz = document.createElement('span'); sz.className = 'meta'; sz.textContent = mb(it.size);
+    const rm = document.createElement('button'); rm.type = 'button'; rm.textContent = '移除'; rm.setAttribute('aria-label', '移除 ' + it.name);
+    rm.addEventListener('click', () => { if (busy) return; URL.revokeObjectURL(it.url); items.splice(i, 1); rebuild(); });
+    li.append(ix, nm, sz, rm); ul.append(li);
+  });
+  if (items.length) {
+    const li = document.createElement('li'); li.className = 'total';
+    const ok = items.filter(i => i.ok);
+    const a = document.createElement('span');
+    a.innerHTML = note ? '' : `共 <b>${items.length}</b> 部，可用 <b>${ok.length}</b> 部，接起來總長 <b>${fmt(ok.reduce((s,i)=>s+i.dur,0))}</b>`;
+    if (note) a.textContent = note;
+    const b = document.createElement('span'); b.className = 'meta'; b.textContent = mb(items.reduce((s,i)=>s+i.size,0));
+    li.append(a, b); ul.append(li);
+  }
+  $('#mergeSave').disabled = busy || items.length < 2;
+  $('#mp3Save').disabled = busy || !items.length;
+  $('#mp3Save').textContent = items.length > 1 ? '匯出合併 MP3' : '匯出 MP3';
+}
+
+async function rebuild(){
+  timeline = []; let off = 0;
+  for (const it of items) if (it.ok) { it.offset = off; off += it.dur; timeline.push(it); }
+  resetResults(); sigs = []; times = []; cur = -1; $('#reanalyze').disabled = true;
+  $('#mergeStatus').textContent = '';
+  if (!timeline.length) {
+    W = H = dur = 0; renderFiles();
+    $('#p2').setAttribute('aria-disabled','true'); $('#p3').setAttribute('aria-disabled','true');
+    if (items.length) showErr('清單裡的影片這個瀏覽器都無法播放。請改用 Chrome 或 Edge；若仍不行，先把影片轉成 MP4（H.264）再試。');
+    else showErr('');
+    return;
+  }
+  showErr('');
+  W = timeline[0].w; H = timeline[0].h; dur = off;
+  renderFiles();
+  fileName = timeline[0].name.replace(/\.[^.]+$/, '') + (timeline.length > 1 ? `_等${timeline.length}部` : '');
+  frame.width = W; frame.height = H;
+  const cv = $('#cropcv'); cv.width = W; cv.height = H;
+  $('#p2').setAttribute('aria-disabled','false'); $('#p3').setAttribute('aria-disabled','true');
+  busy = true; lockUI(true);
+  setStatus('偵測投影片範圍中…', 0, true);
+  await autoDetect();
+  setStatus('', 0, false);
+  busy = false; lockUI(false);
+}
+
+/* ---------- continuous timeline over several files ---------- */
+const frame = document.createElement('canvas');
+const fctx = frame.getContext('2d');
+function switchTo(k){
+  if (k === cur) return Promise.resolve();
+  cur = k;
+  return new Promise(res => {
+    const t = setTimeout(res, 20000);
+    video.onloadeddata = () => { clearTimeout(t); res(); };
+    video.onerror = () => { clearTimeout(t); res(); };
+    video.src = timeline[k].url;
+  });
+}
+function seekLocal(t){
+  return new Promise(res => {
+    let done = false;
+    const fin = () => { if (done) return; done = true; video.removeEventListener('seeked', fin); clearTimeout(to); res(); };
+    const to = setTimeout(fin, 8000);
+    video.addEventListener('seeked', fin);
+    video.currentTime = t;
+  });
+}
+async function seek(t){
+  let k = timeline.findIndex(it => t < it.offset + it.dur);
+  if (k < 0) k = timeline.length - 1;
+  await switchTo(k);
+  const it = timeline[k];
+  await seekLocal(Math.min(Math.max(0, t - it.offset), Math.max(0, it.dur - 0.05)));
+  fctx.drawImage(video, 0, 0, W, H);
+  return k;
+}
+const work = document.createElement('canvas');
+const wctx = work.getContext('2d', { willReadFrequently: true });
+
+/* ---------- auto crop ---------- */
+async function autoDetect(){
+  const S = Math.min(1, 640 / W), w = Math.round(W*S), h = Math.round(H*S);
+  work.width = w; work.height = h;
+  const n = 10, maxB = new Float32Array(w*h), sum = new Float32Array(w*h), sq = new Float32Array(w*h);
+  for (let k = 0; k < n; k++) {
+    await seek(dur * (0.05 + 0.9 * k / (n-1)));
+    wctx.drawImage(frame, 0, 0, w, h);
+    const d = wctx.getImageData(0, 0, w, h).data;
+    for (let i = 0, p = 0; i < w*h; i++, p += 4) {
+      const g = 0.299*d[p] + 0.587*d[p+1] + 0.114*d[p+2];
+      if (g > maxB[i]) maxB[i] = g; sum[i] += g; sq[i] += g*g;
+    }
+  }
+  // 1) seed: region where pixels change over time
+  const act = new Uint8Array(w*h);
+  for (let i = 0; i < w*h; i++) { const m = sum[i]/n; act[i] = (sq[i]/n - m*m) > 150 ? 1 : 0; }
+  const rowF = y => { let c = 0; for (let x = 0; x < w; x++) c += act[y*w+x]; return c/w; };
+  const colF = x => { let c = 0; for (let y = 0; y < h; y++) c += act[y*w+x]; return c/h; };
+  let y0 = 0, y1 = h-1, x0 = 0, x1 = w-1;
+  while (y0 < h-1 && rowF(y0) < 0.12) y0++;
+  while (y1 > y0 && rowF(y1) < 0.12) y1--;
+  while (x0 < w-1 && colF(x0) < 0.12) x0++;
+  while (x1 > x0 && colF(x1) < 0.12) x1--;
+  // 2) grow to the bright edge of the slide (static margins don't change over time)
+  const rowB = (y, a, b) => { let s = 0; for (let x = a; x <= b; x++) s += maxB[y*w+x]; return s/(b-a+1); };
+  const colB = (x, a, b) => { let s = 0; for (let y = a; y <= b; y++) s += maxB[y*w+x]; return s/(b-a+1); };
+  const TH = 95;
+  if (x1 - x0 > w*0.15 && y1 - y0 > h*0.15) {
+    while (y0 > 0 && rowB(y0-1, x0, x1) > TH) y0--;
+    while (y1 < h-1 && rowB(y1+1, x0, x1) > TH) y1++;
+    while (x0 > 0 && colB(x0-1, y0, y1) > TH) x0--;
+    while (x1 < w-1 && colB(x1+1, y0, y1) > TH) x1++;
+    crop = { x: Math.round(x0/S), y: Math.round(y0/S), w: Math.round((x1-x0+1)/S), h: Math.round((y1-y0+1)/S) };
+    const pad = Math.ceil(1/S);
+    crop.x += pad; crop.y += pad; crop.w -= 2*pad; crop.h -= 2*pad;
+  } else {
+    crop = { x: 0, y: 0, w: W, h: H };
+  }
+  previewT = dur * 0.3;
+  await seek(previewT);
+  syncInputs(); drawCrop();
+}
+
+/* ---------- crop preview & editing ---------- */
+function drawCrop(){
+  const cv = $('#cropcv'), c = cv.getContext('2d');
+  c.drawImage(frame, 0, 0, W, H);
+  if (!crop) return;
+  c.fillStyle = 'rgba(0,0,0,0.55)';
+  c.fillRect(0, 0, W, crop.y); c.fillRect(0, crop.y + crop.h, W, H - crop.y - crop.h);
+  c.fillRect(0, crop.y, crop.x, crop.h); c.fillRect(crop.x + crop.w, crop.y, W - crop.x - crop.w, crop.h);
+  const lw = Math.max(2, W/400);
+  c.strokeStyle = '#4f8cff'; c.lineWidth = lw; c.strokeRect(crop.x + lw/2, crop.y + lw/2, crop.w - lw, crop.h - lw);
+  const ib = +$('#ignoreB').value / 100;
+  if (ib > 0) { c.setLineDash([lw*4, lw*3]); c.strokeStyle = 'rgba(255,190,90,.9)';
+    const yy = crop.y + crop.h*(1-ib); c.beginPath(); c.moveTo(crop.x, yy); c.lineTo(crop.x+crop.w, yy); c.stroke(); c.setLineDash([]); }
+}
+$('#ignoreB').addEventListener('input', () => { if (crop) drawCrop(); });
+function syncInputs(){ ['x','y','w','h'].forEach(k => $('#c'+k).value = crop[k]); }
+['x','y','w','h'].forEach(k => $('#c'+k).addEventListener('change', () => {
+  const v = Math.round(+$('#c'+k).value || 0);
+  crop[k] = v; clampCrop(); syncInputs(); drawCrop(); invalidateScan();
+}));
+function clampCrop(){
+  crop.x = Math.min(Math.max(0, crop.x), W-16); crop.y = Math.min(Math.max(0, crop.y), H-16);
+  crop.w = Math.min(Math.max(16, crop.w), W - crop.x); crop.h = Math.min(Math.max(16, crop.h), H - crop.y);
+}
+function invalidateScan(){ if (sigs.length) { sigs = []; times = []; $('#reanalyze').disabled = true; } }
+$('#autoCrop').addEventListener('click', async () => { if (busy) return; busy = true; lockUI(true); await autoDetect(); busy = false; lockUI(false); invalidateScan(); });
+$('#fullCrop').addEventListener('click', () => { crop = { x:0, y:0, w:W, h:H }; syncInputs(); drawCrop(); invalidateScan(); });
+$('#nextFrame').addEventListener('click', async () => { if (busy) return; busy = true; previewT = (previewT + dur*0.137) % dur; await seek(previewT); drawCrop(); busy = false; });
+
+(() => {
+  const box = $('#cropbox'); let start = null;
+  const pt = e => { const r = box.getBoundingClientRect();
+    return { x: Math.round((e.clientX - r.left) / r.width * W), y: Math.round((e.clientY - r.top) / r.height * H) }; };
+  box.addEventListener('pointerdown', e => { if (busy || !W) return; start = pt(e); box.setPointerCapture(e.pointerId); });
+  box.addEventListener('pointermove', e => { if (!start) return; const p = pt(e);
+    crop = { x: Math.min(start.x, p.x), y: Math.min(start.y, p.y), w: Math.abs(p.x - start.x), h: Math.abs(p.y - start.y) };
+    if (crop.w > 4 && crop.h > 4) { clampCrop(); syncInputs(); drawCrop(); } });
+  box.addEventListener('pointerup', () => { if (!start) return; start = null; clampCrop(); syncInputs(); drawCrop(); invalidateScan(); });
+})();
+
+/* ---------- signature & diff ---------- */
+const sc = document.createElement('canvas'), sctx = sc.getContext('2d', { willReadFrequently: true });
+const mid = document.createElement('canvas'), mctx = mid.getContext('2d');
+mid.width = SW*3; mid.height = SH*3; sc.width = SW; sc.height = SH;
+function signature(){
+  const ib = +$('#ignoreB').value / 100;
+  const ch = Math.max(8, Math.round(crop.h * (1 - ib)));
+  mctx.imageSmoothingQuality = 'high'; sctx.imageSmoothingQuality = 'high';
+  mctx.drawImage(frame, crop.x, crop.y, crop.w, ch, 0, 0, mid.width, mid.height);
+  sctx.drawImage(mid, 0, 0, SW, SH);
+  const d = sctx.getImageData(0, 0, SW, SH).data, out = new Uint8Array(SW*SH);
+  for (let i = 0, p = 0; i < out.length; i++, p += 4) out[i] = (77*d[p] + 150*d[p+1] + 29*d[p+2]) >> 8;
+  const b = new Uint8Array(out.length);
+  for (let y = 0; y < SH; y++) for (let x = 0; x < SW; x++) {
+    let s = 0, c = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const yy = y+dy, xx = x+dx; if (yy < 0 || yy >= SH || xx < 0 || xx >= SW) continue; s += out[yy*SW+xx]; c++; }
+    b[y*SW+x] = s / c;
+  }
+  return b;
+}
+function diff(a, b){ let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length; }
+
+/* ---------- progress ---------- */
+function setStatus(text, frac, show){
+  $('#prog').hidden = !show; $('#status').textContent = text; $('#barI').style.width = (Math.max(0, Math.min(1, frac))*100) + '%';
+}
+
+/* ---------- scan ---------- */
+$('#cancel').addEventListener('click', () => { abortFlag = true; });
+$('#scan').addEventListener('click', async () => {
+  if (busy || !crop) return;
+  busy = true; abortFlag = false; lockUI(true, true);
+  const step = +$('#step').value;
+  sigs = []; times = [];
+  const N = Math.floor(dur / step) + 1, t0 = performance.now();
+  for (let i = 0; i < N; i++) {
+    if (abortFlag) break;
+    const t = i * step;
+    const k = await seek(t);
+    sigs.push(signature()); times.push(t);
+    if (i % 5 === 0 || i === N-1) {
+      const el = (performance.now() - t0) / 1000, rem = el / (i+1) * (N - i - 1);
+      setStatus(`掃描影片 ${fmt(t)} / ${fmt(dur)}` + (timeline.length > 1 ? `（第 ${k+1} 部）` : '') + ` · 預估剩餘 ${fmt(rem)}`, (i+1)/N * 0.85, true);
+    }
+  }
+  if (abortFlag) { sigs = []; times = []; setStatus('已取消', 0, true); busy = false; lockUI(false); return; }
+  await analyze(0.85);
+  busy = false; lockUI(false);
+});
+function lockUI(on, cancellable = false){
+  $('#scan').disabled = on; $('#cancel').hidden = !(on && cancellable);
+  $('#exportPdf').disabled = on || !cands.some(c => c.keep);
+  $('#reanalyze').disabled = on || !sigs.length;
+  ['autoCrop','fullCrop','nextFrame','clearAll'].forEach(i => $('#'+i).disabled = on);
+  $('#mergeSave').disabled = on || items.length < 2;
+  $('#mp3Save').disabled = on || !items.length;
+  document.querySelectorAll('#files button').forEach(b => b.disabled = on);
+}
+$('#reanalyze').addEventListener('click', async () => {
+  if (busy || !sigs.length) return; busy = true; abortFlag = false; lockUI(true, true); await analyze(0); busy = false; lockUI(false);
+});
+
+/* ---------- segmentation + capture ---------- */
+async function analyze(p0){
+  const thr = +$('#thr').value, minStay = +$('#minStay').value, dedupe = $('#dedupe').checked;
+  const step = times.length > 1 ? times[1] - times[0] : 1;
+  const cuts = [0];
+  for (let i = 1; i < sigs.length; i++) if (diff(sigs[i], sigs[i-1]) > thr) cuts.push(i);
+  cuts.push(sigs.length);
+  const back = Math.max(1, Math.round(1 / step));
+  const picks = [];
+  for (let k = 0; k + 1 < cuts.length; k++) {
+    const a = cuts[k], b = cuts[k+1];
+    if ((b - a) * step < minStay) continue;
+    const idx = Math.max(a, b - 1 - back);
+    if (picks.length && diff(sigs[idx], sigs[picks[picks.length-1].idx]) < thr) { picks[picks.length-1].idx = idx; continue; }
+    picks.push({ idx });
+  }
+  if (dedupe) picks.forEach((p, i) => {
+    for (let j = 0; j < i; j++) if (!picks[j].dup && diff(sigs[p.idx], sigs[picks[j].idx]) < thr) { p.dup = j + 1; break; }
+  });
+  resetResults();
+  const cv = document.createElement('canvas'); cv.width = crop.w; cv.height = crop.h;
+  const c = cv.getContext('2d');
+  for (let i = 0; i < picks.length; i++) {
+    if (abortFlag) break;
+    const t = times[picks[i].idx];
+    const part = await seek(t);
+    c.drawImage(frame, crop.x, crop.y, crop.w, crop.h, 0, 0, crop.w, crop.h);
+    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.92));
+    cands.push({ t, part, blob, url: URL.createObjectURL(blob), keep: !picks[i].dup, dup: picks[i].dup || 0 });
+    setStatus(`擷取投影片 ${i+1} / ${picks.length}`, p0 + (1-p0) * (i+1)/picks.length, true);
+  }
+  setStatus(`完成：找到 ${cands.length} 頁`, 1, true);
+  render();
+  $('#p3').setAttribute('aria-disabled', cands.length ? 'false' : 'true');
+  if (cands.length) $('#p3').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+}
+function resetResults(){ cands.forEach(c => URL.revokeObjectURL(c.url)); cands = []; render(); }
+
+/* ---------- results grid ---------- */
+const where = c => `${fmt(c.t)}` + (timeline.length > 1 ? ` · 第${c.part+1}部` : '');
+function render(){
+  const box = $('#cards'); box.textContent = '';
+  cands.forEach((c, i) => {
+    const d = document.createElement('div'); d.className = 'card' + (c.keep ? '' : ' off'); d.tabIndex = 0;
+    const img = document.createElement('img'); img.src = c.url; img.alt = `第 ${i+1} 頁，${where(c)}`; img.loading = 'lazy';
+    const cap = document.createElement('div'); cap.className = 'cap';
+    const s1 = document.createElement('span'); s1.textContent = `#${i+1} · ${where(c)}`; cap.append(s1);
+    if (c.dup) { const tg = document.createElement('span'); tg.className = 'tag'; tg.textContent = `同 #${c.dup}`; cap.append(tg); }
+    const tog = document.createElement('button'); tog.type = 'button'; tog.className = 'tog'; tog.textContent = c.keep ? '✓' : '✕';
+    tog.setAttribute('aria-label', c.keep ? '排除這一頁' : '加回這一頁');
+    tog.addEventListener('click', e => { e.stopPropagation(); toggle(i); });
+    d.addEventListener('click', () => openLb(i));
+    d.addEventListener('keydown', e => { if (e.key === 'Enter') openLb(i); if (e.key === ' ') { e.preventDefault(); toggle(i); } });
+    d.append(img, cap, tog); box.append(d);
+  });
+  const kept = cands.filter(c => c.keep).length, dups = cands.filter(c => c.dup).length;
+  $('#summary').innerHTML = cands.length
+    ? `<span>偵測到 <b>${cands.length}</b> 頁</span><span>將匯出 <b>${kept}</b> 頁</span>` + (dups ? `<span>重複出現 <b>${dups}</b> 頁（已預設排除）</span>` : '')
+    : '';
+  $('#exportPdf').disabled = busy || !kept;
+}
+function toggle(i){
+  cands[i].keep = !cands[i].keep;
+  const card = $('#cards').children[i];
+  if (card) { card.classList.toggle('off', !cands[i].keep); const b = card.querySelector('.tog');
+    b.textContent = cands[i].keep ? '✓' : '✕'; b.setAttribute('aria-label', cands[i].keep ? '排除這一頁' : '加回這一頁'); }
+  const kept = cands.filter(c => c.keep).length;
+  const sb = $('#summary').querySelectorAll('b'); if (sb[1]) sb[1].textContent = kept;
+  $('#exportPdf').disabled = busy || !kept;
+  if (lbIndex === i) showLb();
+}
+
+/* ---------- lightbox ---------- */
+function openLb(i){ lbIndex = i; $('#lb').hidden = false; showLb(); $('#lbClose').focus(); }
+function showLb(){
+  const c = cands[lbIndex]; if (!c) return;
+  $('#lbImg').src = c.url; $('#lb').classList.toggle('off', !c.keep);
+  $('#lbCap').textContent = `#${lbIndex+1} / ${cands.length} · ${where(c)}` + (c.dup ? ` · 同 #${c.dup}` : '') + (c.keep ? '' : ' · 已排除');
+  $('#lbTog').textContent = c.keep ? '排除這頁' : '加回這頁';
+}
+function closeLb(){ $('#lb').hidden = true; const card = $('#cards').children[lbIndex]; lbIndex = -1; if (card) card.focus(); }
+$('#lbPrev').addEventListener('click', () => { if (lbIndex > 0) { lbIndex--; showLb(); } });
+$('#lbNext').addEventListener('click', () => { if (lbIndex < cands.length-1) { lbIndex++; showLb(); } });
+$('#lbTog').addEventListener('click', () => toggle(lbIndex));
+$('#lbClose').addEventListener('click', closeLb);
+$('#lb').addEventListener('click', e => { if (e.target.id === 'lb') closeLb(); });
+document.addEventListener('keydown', e => {
+  if ($('#lb').hidden) return;
+  if (e.key === 'Escape') closeLb();
+  else if (e.key === 'ArrowLeft') $('#lbPrev').click();
+  else if (e.key === 'ArrowRight') $('#lbNext').click();
+  else if (e.key === ' ') { e.preventDefault(); toggle(lbIndex); }
+});
+
+/* ---------- saving files ---------- */
+async function saveFile(name, blob){
+  if (window.claude && typeof window.claude.use === 'function') {
+    const dl = await window.claude.use('downloads');
+    if (dl) {
+      try { await dl.save({ filename: name, data: blob }); return { ok: true, msg: '已儲存' }; }
+      catch (e) {
+        const code = e && e.code;
+        if (code === 'declined') return { ok: false, msg: '已取消儲存' };
+        if (code === 'rejected_extension' || code === 'extension_not_enabled')
+          return { ok: false, msg: '網頁版不允許下載這種檔案格式。請用資料夾裡的離線版「影片投影片擷取器.html」，在 Chrome 開啟後再按一次。' };
+        if (code === 'too_large') return { ok: false, msg: '檔案太大，這個環境無法儲存。請改用離線版 HTML。' };
+        return { ok: false, msg: '儲存失敗，請稍後再試' };
+      }
+    }
+    return { ok: false, msg: '這個檢視模式不能下載檔案' };
+  }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 120000);
+  return { ok: true, msg: '已下載' };
+}
+
+/* ---------- PDF export ---------- */
+$('#exportPdf').addEventListener('click', async () => {
+  const kept = cands.filter(c => c.keep); if (!kept.length || busy) return;
+  if (!window.jspdf) { $('#expStatus').textContent = 'PDF 元件沒有載入，請確認網路連線後重新整理'; return; }
+  busy = true; lockUI(true);
+  try {
+    const { jsPDF } = window.jspdf;
+    const w = crop.w, h = crop.h, o = w >= h ? 'landscape' : 'portrait';
+    const doc = new jsPDF({ orientation: o, unit: 'pt', format: [w, h], compress: true });
+    for (let i = 0; i < kept.length; i++) {
+      if (i) doc.addPage([w, h], o);
+      const buf = new Uint8Array(await kept[i].blob.arrayBuffer());
+      doc.addImage(buf, 'JPEG', 0, 0, w, h, undefined, 'NONE');
+      $('#expStatus').textContent = `製作 PDF ${i+1} / ${kept.length}`;
+      if (i % 10 === 9) await new Promise(r => setTimeout(r));
+    }
+    const blob = doc.output('blob');
+    const r = await saveFile(fileName + '_投影片.pdf', blob);
+    $('#expStatus').textContent = r.msg + (r.ok ? ` · ${kept.length} 頁 · ${(blob.size/1048576).toFixed(1)} MB` : '');
+  } catch (e) {
+    $('#expStatus').textContent = '匯出失敗：' + (e && e.message ? e.message : e);
+  }
+  busy = false; lockUI(false);
+});
+
+/* ======================================================================
+   Lossless Matroska / WebM concatenation (no re-encoding).
+   Keeps the first file's EBML header and Tracks, rewrites every Cluster's
+   timecode with a running offset, and writes a fresh SeekHead, Info and Cues.
+   ====================================================================== */
+const MK = { EBML:0x1A45DFA3, DocType:0x4282, Segment:0x18538067, SeekHead:0x114D9B74, Seek:0x4DBB, SeekID:0x53AB, SeekPos:0x53AC,
+  Info:0x1549A966, TimecodeScale:0x2AD7B1, Duration:0x4489, MuxingApp:0x4D80, WritingApp:0x5741,
+  Tracks:0x1654AE6B, TrackEntry:0xAE, TrackNumber:0xD7, TrackType:0x83, CodecID:0x86, CodecPrivate:0x63A2,
+  Video:0xE0, PixelWidth:0xB0, PixelHeight:0xBA, Audio:0xE1, SampFreq:0xB5, Channels:0x9F,
+  Cluster:0x1F43B675, Timecode:0xE7, SimpleBlock:0xA3, CRC:0xBF, Void:0xEC,
+  Cues:0x1C53BB6B, CuePoint:0xBB, CueTime:0xB3, CueTrackPos:0xB7, CueTrack:0xF7, CueClusterPos:0xF1 };
+class MergeError extends Error {}
+async function readAt(file, pos, len){ return new Uint8Array(await file.slice(pos, Math.min(file.size, pos + len)).arrayBuffer()); }
+function vint(buf, off, keepMarker){
+  const b = buf[off]; if (b === undefined) throw new RangeError('eof');
+  let len = 1, mask = 0x80; while (len <= 8 && !(b & mask)) { mask >>= 1; len++; }
+  if (len > 8) throw new MergeError('檔案結構損壞');
+  if (off + len > buf.length) throw new RangeError('eof');
+  let v = keepMarker ? b : (b & (mask - 1)), ones = (b & (mask - 1)) === (mask - 1);
+  for (let i = 1; i < len; i++) { v = v * 256 + buf[off + i]; if (buf[off + i] !== 255) ones = false; }
+  return { v, len, unknown: !keepMarker && ones };
+}
+function el(buf, off){ const id = vint(buf, off, true), sz = vint(buf, off + id.len, false); return { id: id.v, size: sz.unknown ? -1 : sz.v, hlen: id.len + sz.len }; }
+function children(buf, start = 0, end = buf.length){
+  const out = []; let p = start;
+  while (p < end) { const e = el(buf, p); if (e.size < 0) break; out.push({ ...e, off: p, data: p + e.hlen }); p += e.hlen + e.size; }
+  return out;
+}
+function rdUint(buf, off, n){ let v = 0; for (let i = 0; i < n; i++) v = v * 256 + buf[off + i]; return v; }
+function rdFloat(buf, off, n){ const dv = new DataView(buf.buffer, buf.byteOffset + off, n); return n === 4 ? dv.getFloat32(0) : dv.getFloat64(0); }
+const hex = (buf, off, n) => Array.from(buf.subarray(off, off + n), x => x.toString(16).padStart(2, '0')).join('');
+const txt = (buf, off, n) => new TextDecoder().decode(buf.subarray(off, off + n)).replace(/\0+$/, '');
+
+// writers (all sizes as 8-byte vints so lengths are predictable)
+function idBytes(id){ const a = []; while (id > 0) { a.unshift(id & 0xff); id = Math.floor(id / 256); } return a; }
+function u64(v){ const a = new Array(8); for (let i = 7; i >= 0; i--) { a[i] = v % 256; v = Math.floor(v / 256); } return a; }
+function size8(n){ const a = u64(n); a[0] = 0x01; return a; }
+function wEl(id, payload){ return [...idBytes(id), ...size8(payload.length), ...payload]; }
+function wUint(id, v){ return wEl(id, u64(v)); }
+function wFloat(id, f){ const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, f); return wEl(id, [...b]); }
+function wStr(id, s){ return wEl(id, [...new TextEncoder().encode(s)]); }
+
+async function inspectMkv(file, onProgress){
+  const head = await readAt(file, 0, 64);
+  let e0; try { e0 = el(head, 0); } catch { throw new MergeError('不是 MKV / WebM 格式'); }
+  if (e0.id !== MK.EBML) throw new MergeError('不是 MKV / WebM 格式');
+  const ebmlEnd = e0.hlen + e0.size, ebml = await readAt(file, 0, ebmlEnd);
+  let docType = 'matroska';
+  for (const c of children(ebml, e0.hlen, ebmlEnd)) if (c.id === MK.DocType) docType = txt(ebml, c.data, c.size);
+  const sh = await readAt(file, ebmlEnd, 16), seg = el(sh, 0);
+  if (seg.id !== MK.Segment) throw new MergeError('檔案結構不完整');
+  const segData = ebmlEnd + seg.hlen, segEnd = seg.size < 0 ? file.size : Math.min(file.size, segData + seg.size);
+  const r = { file, ebml, docType, scale: 1e6, duration: null, tracks: null, trackSig: '', videoTrack: 0, clusters: [], trackList: [] };
+  let p = segData, n = 0;
+  while (p < segEnd) {
+    let hb, e;
+    try { hb = await readAt(file, p, 4096); e = el(hb, 0); } catch (err) { if (err instanceof RangeError) break; throw err; }
+    if (e.size < 0) {
+      if (e.id === MK.Cluster) throw new MergeError('影片裡有長度未知的區段（錄影可能沒有正常結束），無法直接合併');
+      break;
+    }
+    const end = p + e.hlen + e.size;
+    if (e.id === MK.Info) {
+      const b = await readAt(file, p, e.hlen + e.size);
+      for (const c of children(b, e.hlen)) {
+        if (c.id === MK.TimecodeScale) r.scale = rdUint(b, c.data, c.size);
+        if (c.id === MK.Duration) r.duration = rdFloat(b, c.data, c.size);
+      }
+    } else if (e.id === MK.Tracks) {
+      r.tracks = await readAt(file, p, e.hlen + e.size);
+      const sig = [];
+      for (const te of children(r.tracks, e.hlen)) {
+        if (te.id !== MK.TrackEntry) continue;
+        const t = {};
+        for (const c of children(r.tracks, te.data, te.data + te.size)) {
+          if (c.id === MK.TrackNumber) t.num = rdUint(r.tracks, c.data, c.size);
+          else if (c.id === MK.TrackType) t.type = rdUint(r.tracks, c.data, c.size);
+          else if (c.id === MK.CodecID) t.codec = txt(r.tracks, c.data, c.size);
+          else if (c.id === MK.CodecPrivate) { t.priv = hex(r.tracks, c.data, c.size); t.privBytes = r.tracks.slice(c.data, c.data + c.size); }
+          else if (c.id === MK.Video || c.id === MK.Audio) for (const g of children(r.tracks, c.data, c.data + c.size)) {
+            if (g.id === MK.PixelWidth) t.w = rdUint(r.tracks, g.data, g.size);
+            if (g.id === MK.PixelHeight) t.h = rdUint(r.tracks, g.data, g.size);
+            if (g.id === MK.SampFreq) t.sr = rdFloat(r.tracks, g.data, g.size);
+            if (g.id === MK.Channels) t.ch = rdUint(r.tracks, g.data, g.size);
+          }
+        }
+        if (t.type === 1 && !r.videoTrack) r.videoTrack = t.num;
+        r.trackList.push(t);
+        sig.push([t.num, t.type, t.codec, t.w, t.h, t.sr, t.ch].join('/'));
+        t.priv && sig.push('p' + t.num + ':' + t.priv);
+      }
+      r.trackSig = sig.join('|');
+    } else if (e.id === MK.Cluster) {
+      let c = e.hlen, tc = null, rest = 0, key = false, rel = 0;
+      while (c < hb.length) {
+        const ce = el(hb, c);
+        if (ce.id === MK.CRC || ce.id === MK.Void) { c += ce.hlen + ce.size; continue; }
+        if (ce.id !== MK.Timecode) break;
+        tc = rdUint(hb, c + ce.hlen, ce.size); rest = p + c + ce.hlen + ce.size;
+        let q = c + ce.hlen + ce.size;
+        for (let k = 0; k < 8 && q + 12 < hb.length; k++) {   // find first video block to see if it is a keyframe
+          const be = el(hb, q);
+          if (be.id !== MK.SimpleBlock || be.size < 0) break;
+          const tn = vint(hb, q + be.hlen, false);
+          const o = q + be.hlen + tn.len;
+          if (tn.v === r.videoTrack) { key = !!(hb[o + 2] & 0x80); rel = (hb[o] << 24 >> 16) | hb[o + 1]; break; }
+          q += be.hlen + be.size;
+        }
+        break;
+      }
+      if (tc === null) throw new MergeError('影片的區段格式不支援直接合併');
+      r.clusters.push({ tc, rest, end, key, rel });
+      if (++n % 50 === 0) onProgress && onProgress(p / file.size);
+    }
+    p = end;
+  }
+  if (!r.tracks || !r.clusters.length) throw new MergeError('找不到影像資料，檔案可能不完整');
+  if (r.duration === null) {
+    const last = r.clusters[r.clusters.length - 1];
+    r.duration = last.tc + 1000 * 1e6 / r.scale;
+  }
+  return r;
+}
+
+async function buildMerged(files, onProgress){
+  const parts = [];
+  for (let i = 0; i < files.length; i++) {
+    parts.push(await inspectMkv(files[i], f => onProgress((i + f) / files.length * 0.9, `分析第 ${i+1} 部`)));
+  }
+  const a = parts[0];
+  for (let i = 1; i < parts.length; i++) {
+    const b = parts[i];
+    if (b.docType !== a.docType || b.scale !== a.scale || b.trackSig !== a.trackSig)
+      throw new MergeError(`第 ${i+1} 部的影音格式（解析度、編碼或聲道）跟第 1 部不同，無法不重新編碼直接合併。投影片擷取不受影響。`);
+  }
+  onProgress(0.92, '組合中');
+  // offsets in timecode units
+  let off = 0; const offs = parts.map(p => { const o = off; off += Math.round(p.duration); return o; });
+  const total = off;
+  const info = wEl(MK.Info, [...wUint(MK.TimecodeScale, a.scale), ...wFloat(MK.Duration, total),
+    ...wStr(MK.MuxingApp, 'slide-extractor merge'), ...wStr(MK.WritingApp, 'slide-extractor merge')]);
+  const seekHeadLen = wSeekHead(0, 0, 0).length;
+  // positions are relative to the start of the Segment payload
+  let pos = seekHeadLen + info.length + a.tracks.length;
+  const infoPos = seekHeadLen, tracksPos = seekHeadLen + info.length;
+  const blobParts = [], cues = [];
+  parts.forEach((p, i) => {
+    for (const c of p.clusters) {
+      const restLen = c.end - c.rest, tc = c.tc + offs[i];
+      const payloadLen = idBytes(MK.Timecode).length + 8 + 8 + restLen;   // Timecode element (id + 8B size + 8B value) + rest
+      const header = new Uint8Array([...idBytes(MK.Cluster), ...size8(payloadLen), ...idBytes(MK.Timecode), ...size8(8), ...u64(tc)]);
+      if (c.key) cues.push({ t: tc + c.rel, pos });
+      blobParts.push(header, p.file.slice(c.rest, c.end));
+      pos += header.length + restLen;
+    }
+  });
+  const cuesPos = pos;
+  const cueBytes = wEl(MK.Cues, cues.flatMap(c => wEl(MK.CuePoint, [...wUint(MK.CueTime, Math.max(0, c.t)),
+    ...wEl(MK.CueTrackPos, [...wUint(MK.CueTrack, a.videoTrack || 1), ...wUint(MK.CueClusterPos, c.pos)])])));
+  const segPayload = pos + cueBytes.length;
+  const head = new Uint8Array([...a.ebml, ...idBytes(MK.Segment), ...size8(segPayload),
+    ...wSeekHead(infoPos, tracksPos, cuesPos), ...info]);
+  onProgress(1, '完成');
+  return new Blob([head, a.tracks, ...blobParts, new Uint8Array(cueBytes)], { type: a.docType === 'webm' ? 'video/webm' : 'video/x-matroska' });
+}
+function wSeekHead(infoPos, tracksPos, cuesPos){
+  const seek = (id, p) => wEl(MK.Seek, [...wEl(MK.SeekID, idBytes(id)), ...wUint(MK.SeekPos, p)]);
+  return wEl(MK.SeekHead, [...seek(MK.Info, infoPos), ...seek(MK.Tracks, tracksPos), ...seek(MK.Cues, cuesPos)]);
+}
+
+$('#mergeSave').addEventListener('click', async () => {
+  if (busy || items.length < 2) return;
+  const st = $('#mergeStatus'), bar = $('#mergeBar');
+  const bad = items.find(it => !/\.(mkv|webm)$/i.test(it.name));
+  if (bad) { st.textContent = `「${bad.name}」不是 MKV / WebM，目前只能合併這兩種格式。投影片擷取不受影響。`; return; }
+  busy = true; lockUI(true); $('#mergeProg').hidden = false; bar.style.width = '0%';
+  try {
+    const blob = await buildMerged(items.map(i => i.file), (f, label) => { bar.style.width = (f*100) + '%'; st.textContent = `${label}… ${Math.round(f*100)}%`; });
+    const ext = /\.webm$/i.test(items[0].name) ? 'webm' : 'mkv';
+    const name = items[0].name.replace(/\.[^.]+$/, '') + `_合併${items.length}部.` + ext;
+    st.textContent = `準備儲存 ${mb(blob.size)}…`;
+    const r = await saveFile(name, blob);
+    st.textContent = r.ok ? `${r.msg}：${name}（${mb(blob.size)}）` : r.msg;
+  } catch (e) {
+    st.textContent = (e instanceof MergeError) ? e.message : '合併失敗：' + (e && e.message ? e.message : e);
+  }
+  $('#mergeProg').hidden = true;
+  busy = false; lockUI(false);
+});
+
+
+/* ======================================================================
+   MP3 export: read the audio track out of each file (MKV/WebM or MP4),
+   decode it with the browser's WebCodecs AudioDecoder, encode with lamejs.
+   Files are processed one after another, in the sorted list order.
+   ====================================================================== */
+class AudioErr extends Error {}
+
+// --- MKV / WebM audio ---
+function blockFrames(buf, off, end, want){
+  const tn = vint(buf, off, false);
+  if (tn.v !== want) return null;
+  let p = off + tn.len + 2;
+  const lacing = (buf[p++] >> 1) & 3;
+  if (lacing === 0) return [buf.subarray(p, end)];
+  const n = buf[p++] + 1, sizes = [];
+  if (lacing === 1) {                         // Xiph
+    for (let i = 0; i < n - 1; i++) { let s = 0, b; do { b = buf[p++]; s += b; } while (b === 255); sizes.push(s); }
+  } else if (lacing === 3) {                  // EBML
+    const f = vint(buf, p, false); p += f.len; sizes.push(f.v);
+    for (let i = 1; i < n - 1; i++) { const d = vint(buf, p, false); p += d.len; sizes.push(sizes[i-1] + d.v - (Math.pow(2, 7*d.len - 1) - 1)); }
+  } else {                                    // fixed
+    const each = (end - p) / n; for (let i = 0; i < n - 1; i++) sizes.push(each);
+  }
+  sizes.push(end - p - sizes.reduce((a, b) => a + b, 0));
+  const out = []; for (const s of sizes) { out.push(buf.subarray(p, p + s)); p += s; } return out;
+}
+function ascFor(sr, ch){            // AAC-LC AudioSpecificConfig when the file has none
+  const rates = [96000,88200,64000,48000,44100,32000,24000,22050,16000,12000,11025,8000,7350];
+  const i = Math.max(0, rates.indexOf(sr));
+  return new Uint8Array([(2 << 3) | (i >> 1), ((i & 1) << 7) | (ch << 3)]);
+}
+function aacCodec(asc){ let aot = asc[0] >> 3; if (aot === 31) aot = 32 + (((asc[0] & 7) << 3) | (asc[1] >> 5)); return 'mp4a.40.' + aot; }
+async function mkvAudio(file){
+  const info = await inspectMkv(file);
+  const t = info.trackList.find(x => x.type === 2);
+  if (!t) return { none: true, duration: info.duration * info.scale / 1e9 };
+  const sr = Math.round(t.sr || 48000), ch = t.ch || 2;
+  let cfg;
+  if (/^A_AAC/.test(t.codec)) { const d = t.privBytes || ascFor(sr, ch); cfg = { codec: aacCodec(d), description: d }; }
+  else if (t.codec === 'A_OPUS') cfg = { codec: 'opus', description: t.privBytes };
+  else if (t.codec === 'A_VORBIS') cfg = { codec: 'vorbis', description: t.privBytes };
+  else if (t.codec === 'A_FLAC') cfg = { codec: 'flac', description: t.privBytes };
+  else if (t.codec === 'A_MPEG/L3') cfg = { codec: 'mp3' };
+  else throw new AudioErr(`「${file.name}」的音訊格式（${t.codec}）目前不支援轉 MP3`);
+  Object.assign(cfg, { sampleRate: sr, numberOfChannels: ch });
+  if (!cfg.description) delete cfg.description;
+  return { cfg, async *frames(onPos){
+    for (const c of info.clusters) {
+      const b = await readAt(file, c.rest, c.end - c.rest);
+      for (const e of children(b)) {
+        if (e.id === MK.SimpleBlock) { const f = blockFrames(b, e.data, e.data + e.size, t.num); if (f) yield* f; }
+        else if (e.id === 0xA0) for (const g of children(b, e.data, e.data + e.size))
+          if (g.id === 0xA1) { const f = blockFrames(b, g.data, g.data + g.size, t.num); if (f) yield* f; }
+      }
+      onPos(c.end / file.size);
+    }
+  } };
+}
+
+// --- MP4 / MOV audio ---
+const u32 = (b, o) => b[o] * 16777216 + (b[o+1] << 16 | b[o+2] << 8 | b[o+3]);
+const u16 = (b, o) => b[o] << 8 | b[o+1];
+const fourcc = (b, o) => String.fromCharCode(b[o], b[o+1], b[o+2], b[o+3]);
+function mp4Boxes(b, start, end){
+  const out = []; let p = start;
+  while (p + 8 <= end) {
+    let size = u32(b, p), hdr = 8; const type = fourcc(b, p + 4);
+    if (size === 1) { size = u32(b, p + 8) * 4294967296 + u32(b, p + 12); hdr = 16; } else if (size === 0) size = end - p;
+    if (size < hdr) break;
+    out.push({ type, data: p + hdr, end: Math.min(end, p + size) }); p += size;
+  }
+  return out;
+}
+const kid = (b, box, type) => box ? mp4Boxes(b, box.data, box.end).find(x => x.type === type) : undefined;
+function descLen(b, p){ let n = 0, c, i = 0; do { c = b[p + i++]; n = (n << 7) | (c & 0x7f); } while (c & 0x80 && i < 4); return { n, len: i }; }
+function parseEsds(b, box){
+  let p = box.data + 4;
+  const tag = () => { const t = b[p++]; const l = descLen(b, p); p += l.len; return { t, n: l.n }; };
+  let d = tag(); if (d.t !== 3) return null;
+  p += 2; const fl = b[p++]; if (fl & 0x80) p += 2; if (fl & 0x40) p += 1 + b[p]; if (fl & 0x20) p += 2;
+  d = tag(); if (d.t !== 4) return null;
+  const oti = b[p]; p += 13;
+  d = tag(); const asc = d.t === 5 ? b.slice(p, p + d.n) : null;
+  return { oti, asc };
+}
+async function mp4Audio(file){
+  let pos = 0, moov = null, frag = false;
+  while (pos + 8 <= file.size) {
+    const h = await readAt(file, pos, 16);
+    let size = u32(h, 0); const type = fourcc(h, 4);
+    if (size === 1) size = u32(h, 8) * 4294967296 + u32(h, 12); else if (size === 0) size = file.size - pos;
+    if (size < 8) break;
+    if (type === 'moov') moov = await readAt(file, pos, size);
+    if (type === 'moof') frag = true;
+    pos += size;
+  }
+  if (!moov) throw new AudioErr(`「${file.name}」找不到影片索引，檔案可能不完整`);
+  let mvhdDur = 0; const mvhd = mp4Boxes(moov, 8, moov.length).find(x => x.type === 'mvhd');
+  if (mvhd) { const v = moov[mvhd.data]; mvhdDur = v === 1 ? (u32(moov, mvhd.data + 24) * 4294967296 + u32(moov, mvhd.data + 28)) / u32(moov, mvhd.data + 20) : u32(moov, mvhd.data + 16) / u32(moov, mvhd.data + 12); }
+  for (const trak of mp4Boxes(moov, 8, moov.length).filter(x => x.type === 'trak')) {
+    const mdia = kid(moov, trak, 'mdia'); if (!mdia) continue;
+    const hdlr = kid(moov, mdia, 'hdlr'); if (!hdlr || fourcc(moov, hdlr.data + 8) !== 'soun') continue;
+    if (frag) throw new AudioErr(`「${file.name}」是分段式 MP4（Fragmented MP4），目前不支援轉 MP3。可以改用 MKV 錄影，或先轉成一般 MP4。`);
+    const stbl = kid(moov, kid(moov, mdia, 'minf'), 'stbl');
+    if (!stbl) continue;
+    const stsd = kid(moov, stbl, 'stsd'); const entry = mp4Boxes(moov, stsd.data + 8, stsd.end)[0];
+    const ver = u16(moov, entry.data + 8), ch = u16(moov, entry.data + 16), sr = u16(moov, entry.data + 24);
+    const subs = mp4Boxes(moov, entry.data + 28 + (ver === 1 ? 16 : ver === 2 ? 36 : 0), entry.end);
+    let cfg;
+    if (entry.type === 'mp4a') {
+      let esds = subs.find(x => x.type === 'esds');
+      if (!esds) { const w = subs.find(x => x.type === 'wave'); esds = w && mp4Boxes(moov, w.data, w.end).find(x => x.type === 'esds'); }
+      const e = esds && parseEsds(moov, esds);
+      if (e && (e.oti === 0x6B || e.oti === 0x69)) cfg = { codec: 'mp3' };
+      else { const asc = (e && e.asc) || ascFor(sr, ch); cfg = { codec: aacCodec(asc), description: asc }; }
+    } else if (entry.type === 'Opus') cfg = { codec: 'opus' };
+    else if (entry.type === '.mp3') cfg = { codec: 'mp3' };
+    else throw new AudioErr(`「${file.name}」的音訊格式（${entry.type}）目前不支援轉 MP3`);
+    Object.assign(cfg, { sampleRate: sr || 48000, numberOfChannels: ch || 2 });
+    // sample table → chunk list
+    const stsz = kid(moov, stbl, 'stsz'), stsc = kid(moov, stbl, 'stsc'), stco = kid(moov, stbl, 'stco') || kid(moov, stbl, 'co64');
+    if (!stsz || !stsc || !stco) throw new AudioErr(`「${file.name}」的音訊索引不完整`);
+    const fixed = u32(moov, stsz.data + 4), count = u32(moov, stsz.data + 8);
+    const sizeOf = i => fixed || u32(moov, stsz.data + 12 + 4*i);
+    const nCh = u32(moov, stco.data + 4), is64 = stco.type === 'co64';
+    const chunkOff = i => is64 ? u32(moov, stco.data + 8 + 8*i) * 4294967296 + u32(moov, stco.data + 12 + 8*i) : u32(moov, stco.data + 8 + 4*i);
+    const nSc = u32(moov, stsc.data + 4), sc = [];
+    for (let i = 0; i < nSc; i++) sc.push([u32(moov, stsc.data + 8 + 12*i), u32(moov, stsc.data + 12 + 12*i)]);
+    const chunks = []; let s = 0;
+    for (let c = 0, k = 0; c < nCh && s < count; c++) {
+      while (k + 1 < sc.length && sc[k+1][0] <= c + 1) k++;
+      const n = Math.min(sc[k][1], count - s), sizes = [];
+      for (let j = 0; j < n; j++) sizes.push(sizeOf(s + j));
+      chunks.push({ off: chunkOff(c), sizes }); s += n;
+    }
+    return { cfg, async *frames(onPos){
+      for (let i = 0; i < chunks.length; i++) {
+        const c = chunks[i], total = c.sizes.reduce((a, b) => a + b, 0);
+        const b = await readAt(file, c.off, total); let p = 0;
+        for (const z of c.sizes) { yield b.subarray(p, p + z); p += z; }
+        if (i % 20 === 0) onPos(i / chunks.length);
+      }
+    } };
+  }
+  return { none: true, duration: mvhdDur };
+}
+
+async function openAudio(file){
+  const h = await readAt(file, 0, 12);
+  if (u32(h, 0) === 0x1A45DFA3) return mkvAudio(file);
+  if (['ftyp','moov','wide','mdat','free'].includes(fourcc(h, 4))) return mp4Audio(file);
+  throw new AudioErr(`「${file.name}」的檔案格式不支援轉 MP3（支援 MKV、WebM、MP4、MOV）`);
+}
+
+async function buildMp3(files, kbps, outCh, onProgress){
+  if (typeof AudioDecoder === 'undefined') throw new AudioErr('這個瀏覽器不支援音訊解碼，請用最新版的 Chrome 或 Edge 開啟');
+  if (!window.lamejs) throw new AudioErr('MP3 編碼元件沒有載入，請確認網路連線後重新整理');
+  const srcs = [];
+  for (let i = 0; i < files.length; i++) { onProgress(i / files.length * 0.03, `讀取第 ${i+1} 部的音訊資訊`); srcs.push(await openAudio(files[i])); }
+  const first = srcs.find(s => !s.none);
+  if (!first) throw new AudioErr('選取的影片都沒有聲音軌');
+  const SR = first.cfg.sampleRate;
+  for (const s of srcs) if (!s.none && s.cfg.sampleRate !== SR) throw new AudioErr('各部影片的音訊取樣率不同，無法合併成同一個 MP3');
+  for (const s of srcs) if (!s.none) {
+    const ok = await AudioDecoder.isConfigSupported(s.cfg).then(r => r.supported, () => false);
+    if (!ok) throw new AudioErr(`這個瀏覽器無法解碼這種音訊（${s.cfg.codec}），請改用 Chrome 或 Edge`);
+  }
+  const enc = new lamejs.Mp3Encoder(outCh, SR, kbps);
+  const out = [];
+  const push = (L, R) => { const m = outCh === 2 ? enc.encodeBuffer(L, R) : enc.encodeBuffer(L); if (m.length) out.push(new Int8Array(m)); };
+  const toI16 = f => { const o = new Int16Array(f.length); for (let i = 0; i < f.length; i++) { const v = f[i] < -1 ? -1 : f[i] > 1 ? 1 : f[i]; o[i] = v < 0 ? v * 32768 : v * 32767; } return o; };
+  let samples = 0;
+  for (let i = 0; i < srcs.length; i++) {
+    const s = srcs[i], base = 0.03 + 0.97 * i / srcs.length, span = 0.97 / srcs.length;
+    if (s.none) {                                // no audio track: keep the timeline with silence
+      const n = Math.round(s.duration * SR), z = new Int16Array(SR);
+      for (let k = 0; k < n; k += SR) { const m = Math.min(SR, n - k); push(z.subarray(0, m), z.subarray(0, m)); }
+      samples += n; continue;
+    }
+    let err = null;
+    const dec = new AudioDecoder({
+      output: a => {
+        try {
+          const n = a.numberOfFrames, nc = a.numberOfChannels, planes = [];
+          for (let c = 0; c < Math.min(nc, 2); c++) { const f = new Float32Array(n); a.copyTo(f, { planeIndex: c, format: 'f32-planar' }); planes.push(f); }
+          let L = planes[0], R = planes[1] || planes[0];
+          if (outCh === 1 && planes[1]) { const m = new Float32Array(n); for (let k = 0; k < n; k++) m[k] = (L[k] + R[k]) / 2; L = R = m; }
+          const Li = toI16(L); push(Li, R === L ? Li : toI16(R)); samples += n;
+        } catch (e) { err = e; } finally { a.close(); }
+      },
+      error: e => { err = e; }
+    });
+    dec.configure(s.cfg);
+    let ts = 0;
+    for await (const fr of s.frames(f => onProgress(base + span * f, `轉換第 ${i+1} / ${srcs.length} 部的聲音`))) {
+      if (err) break;
+      dec.decode(new EncodedAudioChunk({ type: 'key', timestamp: ts, data: fr })); ts += 1000;
+      while (dec.decodeQueueSize > 48 && !err) await new Promise(r => setTimeout(r, 0));
+    }
+    if (!err) await dec.flush().catch(e => { err = e; });
+    if (dec.state !== 'closed') dec.close();
+    if (err) throw new AudioErr(`第 ${i+1} 部的聲音解碼失敗：` + (err.message || err));
+  }
+  const tail = enc.flush(); if (tail.length) out.push(new Int8Array(tail));
+  onProgress(1, '完成');
+  return { blob: new Blob(out, { type: 'audio/mpeg' }), seconds: samples / SR };
+}
+
+$('#mp3Save').addEventListener('click', async () => {
+  if (busy || !items.length) return;
+  const st = $('#mergeStatus'), bar = $('#mergeBar');
+  const [kbps, ch] = $('#mp3Q').value.split('/').map(Number);
+  busy = true; lockUI(true); $('#mergeProg').hidden = false; bar.style.width = '0%';
+  const t0 = performance.now();
+  try {
+    const { blob, seconds } = await buildMp3(items.map(i => i.file), kbps, ch, (f, label) => {
+      bar.style.width = (f*100) + '%';
+      const el = (performance.now() - t0) / 1000, rem = f > 0.05 ? el / f * (1 - f) : 0;
+      st.textContent = `${label}… ${Math.round(f*100)}%` + (rem ? ` · 預估剩餘 ${fmt(rem)}` : '');
+    });
+    const name = items[0].name.replace(/\.[^.]+$/, '') + (items.length > 1 ? `_合併${items.length}部` : '') + '.mp3';
+    st.textContent = `準備儲存 ${mb(blob.size)}…`;
+    const r = await saveFile(name, blob);
+    st.textContent = r.ok ? `${r.msg}：${name}（長度 ${fmt(seconds)}，${(blob.size/1048576).toFixed(1)} MB）` : r.msg;
+  } catch (e) {
+    st.textContent = (e instanceof AudioErr || e instanceof MergeError) ? e.message : '轉換失敗：' + (e && e.message ? e.message : e);
+  }
+  $('#mergeProg').hidden = true;
+  busy = false; lockUI(false);
+});
+
+
+
+})();
+</script>
+
+</body></html>
